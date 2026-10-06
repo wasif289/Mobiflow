@@ -2,18 +2,22 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, ShoppingCart, Receipt, Boxes, Smartphone, Wallet, Settings, Moon, Sun, LogOut } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Receipt, Boxes, Smartphone, Wallet, Banknote, CreditCard, Settings, Moon, Sun, LogOut } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession, type User } from '@/lib/session';
+import { useCan } from '@/lib/can';
+import SubscriptionBanner from './SubscriptionBanner';
 
 const NAV = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/purchases', label: 'Purchase', icon: ShoppingCart },
-  { href: '/sales', label: 'Sales', icon: Receipt },
-  { href: '/catalog', label: 'Catalog', icon: Smartphone },
-  { href: '/inventory', label: 'Inventory', icon: Boxes },
-  { href: '/accounts', label: 'Accounts', icon: Wallet },
-  { href: '/admin', label: 'Admin', icon: Settings },
+  { href: '/dashboard', perm: 'dashboard.view', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/purchases', perm: 'purchases.view', label: 'Purchase', icon: ShoppingCart },
+  { href: '/sales', perm: 'sales.view', label: 'Sales', icon: Receipt },
+  { href: '/catalog', perm: 'catalog.manage', label: 'Catalog', icon: Smartphone },
+  { href: '/inventory', perm: 'inventory.view', label: 'Inventory', icon: Boxes },
+  { href: '/accounts', perm: 'accounts.view', label: 'Accounts', icon: Wallet },
+  { href: '/expenses', perm: 'expenses.view', label: 'Expenses', icon: Banknote },
+  { href: '/billing', perm: 'admin', label: 'Billing', icon: CreditCard },
+  { href: '/admin', perm: 'admin', label: 'Admin', icon: Settings },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -21,6 +25,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const { token, user, branchId, setBranch, setUser, signOut } = useSession();
   const [ready, setReady] = useState(false);
+  const can = useCan();
 
   useEffect(() => { setReady(true); }, []);
   useEffect(() => {
@@ -44,7 +49,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <aside className="hidden w-60 shrink-0 border-r border-border bg-sidebar p-3 md:block">
         <div className="mb-4 px-2 text-lg font-bold text-primary">MobiFlow</div>
         <nav className="space-y-1">
-          {NAV.map(({ href, label, icon: Icon }) => (
+          {NAV.filter((x) => can(x.perm)).map(({ href, label, icon: Icon }) => (
             <Link key={href} href={href}
               className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm ${path.startsWith(href) ? 'bg-primary text-white' : 'text-muted hover:bg-bg'}`}>
               <Icon size={18} /> {label}
@@ -64,6 +69,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </button>
           <button onClick={logout} aria-label="Sign out" className="rounded-lg p-2 text-muted hover:bg-bg"><LogOut size={18} /></button>
         </header>
+        <SubscriptionBanner />
         <main key={branchId} className="p-4">{children}</main>
       </div>
     </div>

@@ -11,10 +11,6 @@ final class SaleReturnController
 {
     public function __invoke(Request $request, int $id, CreateSaleReturn $create): JsonResponse
     {
-        // Money-affecting action: owner/admin only until granular permissions land.
-        $request->user()->seesAllBranches()
-            || throw new AppException(403, 'FORBIDDEN', 'Only the owner or an admin can process returns.');
-
         $d = $request->validate([
             'imeis' => 'required|array|min:1|max:100', 'imeis.*' => 'required|string|max:20',
             'reason' => 'required|string|max:200', 'return_date' => 'required|date',

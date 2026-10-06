@@ -12,15 +12,6 @@ use Illuminate\Support\Facades\DB;
 
 final class SaleController
 {
-    public function index(Request $request, TenantContext $ctx): JsonResponse
-    {
-        $page = Sale::with('customer:id,name')->withSum('items as cost_sum', 'cost_minor')
-            ->when($ctx->branchId(), fn ($q, $b) => $q->where('branch_id', $b))
-            ->orderByDesc('sale_date')->orderByDesc('id')->paginate(25);
-
-        return response()->json($page->through(fn (Sale $s) => $this->row($s, $request)));
-    }
-
     public function show(Request $request, int $id): JsonResponse
     {
         $s = Sale::with(['customer:id,name', 'items.stockItem.deviceModel.brand'])->withSum('items as cost_sum', 'cost_minor')->findOrFail($id);

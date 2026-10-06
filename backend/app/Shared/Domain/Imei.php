@@ -19,7 +19,6 @@ final readonly class Imei implements \Stringable
         $this->value = $v;
     }
 
-    /** Type Allocation Code: first 8 digits, maps to brand/model. */
     public function tac(): string { return substr($this->value, 0, 8); }
     public function __toString(): string { return $this->value; }
 

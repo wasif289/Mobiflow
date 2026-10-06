@@ -24,7 +24,7 @@ final class CreateVoucher
         $amount = Money::parse((string) $d['amount']);
         $amount->minor > 0 || throw new AppException(422, 'INVALID_AMOUNT', 'Amount must be more than zero.', ['amount' => ['Must be more than zero']]);
 
-        DB::table($d['party_type'] === 'supplier' ? 'suppliers' : 'customers')->where('id', $d['party_id'])->exists()
+        DB::table($d['party_type'] === 'supplier' ? 'suppliers' : 'customers')->where('tenant_id', $this->ctx->tenantId())->where('id', $d['party_id'])->exists()
             || throw new AppException(422, 'PARTY_NOT_FOUND', 'That party does not exist.', ['party_id' => ['Not found']]);
 
         return DB::transaction(function () use ($d, $userId, $branchId, $amount) {

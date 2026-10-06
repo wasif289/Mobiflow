@@ -35,7 +35,7 @@ export default function NewPurchase() {
     const raw = scan.replace(/\D/g, '');
     if (lines.some((l) => l.imei === raw)) { setError(`${raw} is already in this list.`); return; }
     try {
-      const r = await api<Lookup>(`/imei/${raw}`); // validates + auto-detects model
+      const r = await api<Lookup>(`/imei/${raw}`); 
       setLines((l) => [...l, { imei: r.imei, modelId: r.model ? String(r.model.id) : '', colorId: '', cost: defCost }]);
       setScan('');
     } catch (err) { setError(err instanceof ApiError ? err : 'Lookup failed.'); }
@@ -83,7 +83,7 @@ export default function NewPurchase() {
         <input inputMode="decimal" placeholder="Default cost" value={defCost} onChange={(e) => setDefCost(e.target.value)} className={input} />
       </div>
       <form onSubmit={addScan} className="flex gap-2">
-        <input autoFocus value={scan} onChange={(e) => setScan(e.target.value)} inputMode="numeric" placeholder="Scan or type IMEI, press Enter" className={`${input} flex-1`} />
+        <input autoFocus value={scan} maxLength={15} onChange={(e) => setScan(e.target.value)} inputMode="numeric" placeholder="Scan or type IMEI, press Enter" className={`${input} flex-1`} />
         <button className="rounded-lg border border-border px-4 text-sm hover:bg-bg">Add</button>
       </form>
       <div className="overflow-x-auto rounded-xl border border-border bg-card">

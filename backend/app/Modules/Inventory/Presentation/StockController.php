@@ -32,18 +32,6 @@ final class StockController
         return response()->json($this->row($s, $request));
     }
 
-    public function index(Request $request, TenantContext $ctx): JsonResponse
-    {
-        $digits = preg_replace('/\D/', '', (string) $request->query('q'));
-        $page = StockItem::with(['deviceModel.brand', 'color:id,name'])
-            ->when($ctx->branchId(), fn ($q, $b) => $q->where('branch_id', $b))
-            ->when($request->query('status'), fn ($q, $st) => $q->where('status', $st))
-            ->when($digits, fn ($q, $d) => $q->where('imei', 'like', "%{$d}%"))
-            ->orderByDesc('id')->paginate(50);
-
-        return response()->json($page->through(fn ($s) => $this->row($s, $request)));
-    }
-
     private function row(StockItem $s, Request $request): array
     {
         return [

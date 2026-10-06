@@ -30,14 +30,12 @@ final class CatalogController
 
     public function store(Request $request, string $resource): JsonResponse
     {
-        $this->authorizeWrite($request);
         [$model, $rules] = self::RESOURCES[$resource];
         return response()->json($model::create($request->validate($rules)), 201);
     }
 
     public function update(Request $request, string $resource, int $id): JsonResponse
     {
-        $this->authorizeWrite($request);
         [$model, $rules] = self::RESOURCES[$resource];
         $row = $model::findOrFail($id);
         $row->update($request->validate($rules));
@@ -46,15 +44,8 @@ final class CatalogController
 
     public function destroy(Request $request, string $resource, int $id): JsonResponse
     {
-        $this->authorizeWrite($request);
         [$model] = self::RESOURCES[$resource];
         $model::findOrFail($id)->delete(); // FK restrict -> 409 RESOURCE_IN_USE via ProblemDetails
         return response()->json(null, 204);
-    }
-
-    private function authorizeWrite(Request $request): void
-    {
-        $request->user()->seesAllBranches()
-            || throw new AppException(403, 'FORBIDDEN', 'Only the owner or an admin can change the catalog.');
     }
 }

@@ -2,44 +2,35 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
-import { api, ApiError } from '@/lib/api';
+import DataTable, { type Col } from '@/components/DataTable';
+import { api } from '@/lib/api';
+import { n } from '@/lib/format';
+import { useSession } from '@/lib/session';
 
-type S = { id: number; invoice_no: string; sale_date: string; customer: string | null; total: string; received: string; due: string; profit?: string };
-const fmt = (v: string) => Number(v).toLocaleString('en-PK');
+type S = { id: number; invoice_no: string; date: string; customer: string; qty: number; total: string; received: string; due: string; profit?: string };
 
 export default function Sales() {
-  const [rows, setRows] = useState<S[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    api<{ data: S[] }>('/sales').then((r) => setRows(r.data)).catch((e) => setError(e instanceof ApiError ? e.message : 'Failed to load.'));
-  }, []);
-  const showProfit = rows?.some((r) => r.profit !== undefined);
-  const heads = ['Invoice', 'Date', 'Customer', 'Total', 'Received', 'Due', ...(showProfit ? ['Profit'] : [])];
-
+  const admin = ['owner', 'admin'].includes(useSession((s) => s.user?.role) ?? '');
+  const [cust, setCust] = useState<{ value: string; label: string }[]>([]);
+  useEffect(() => { api<{ id: number; name: string }[]>('/customers').then((r) => setCust(r.map((c) => ({ value: String(c.id), label: c.name })))); }, []);
+  const cols: Col<S>[] = [
+    { key: 'invoice', label: 'Invoice', sort: 'invoice', cell: (r) => <Link href={`/sales/${r.id}`} className="font-medium text-primary hover:underline">{r.invoice_no}</Link> },
+    { key: 'date', label: 'Date', sort: 'date' },
+    { key: 'customer', label: 'Customer', sort: 'customer' },
+    { key: 'qty', label: 'Qty', sort: 'qty', align: 'center' },
+    { key: 'total', label: 'Amount', sort: 'total', align: 'right', cell: (r) => n(r.total) },
+    { key: 'received', label: 'Received', sort: 'received', align: 'right', cell: (r) => <span className="text-success">{n(r.received)}</span> },
+    { key: 'due', label: 'Due', sort: 'due', align: 'right', cell: (r) => <span className={Number(r.due) > 0 ? 'text-danger' : 'text-muted'}>{n(r.due)}</span> },
+    ...(admin ? [{ key: 'profit', label: 'Profit', sort: 'profit', align: 'right' as const, cell: (r: S) => <span className={Number(r.profit) < 0 ? 'text-danger' : 'text-success'}>{n(r.profit)}</span> }] : []),
+  ];
   return (
-    <div className="space-y-4">
-      <div className="flex items-center">
-        <h1 className="text-xl font-bold">Sales</h1>
-        <Link href="/sales/new" className="ml-auto flex items-center gap-1 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white"><Plus size={16} /> New sale</Link>
-      </div>
-      {error && <div role="alert" className="rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">{error}</div>}
-      <div className="overflow-x-auto rounded-xl border border-border bg-card">
-        <table className="w-full text-sm">
-          <thead className="text-left text-muted"><tr>{heads.map((h) => <th key={h} className="px-4 py-2 font-medium">{h}</th>)}</tr></thead>
-          <tbody>
-            {rows === null && !error && <tr><td colSpan={heads.length} className="px-4 py-4 text-muted">Loading…</td></tr>}
-            {rows?.length === 0 && <tr><td colSpan={heads.length} className="px-4 py-4 text-muted">No sales in this branch yet.</td></tr>}
-            {rows?.map((s) => (
-              <tr key={s.id} className="border-t border-border">
-                <td className="px-4 py-2 font-medium"><Link href={`/sales/${s.id}`} className="text-primary hover:underline">{s.invoice_no}</Link></td><td className="px-4 py-2">{s.sale_date}</td>
-                <td className="px-4 py-2">{s.customer ?? <span className="text-muted">Walk-in</span>}</td>
-                <td className="px-4 py-2">{fmt(s.total)}</td><td className="px-4 py-2 text-success">{fmt(s.received)}</td>
-                <td className={`px-4 py-2 ${Number(s.due) > 0 ? 'text-danger' : ''}`}>{fmt(s.due)}</td>
-                {showProfit && <td className={`px-4 py-2 ${Number(s.profit) < 0 ? 'text-danger' : 'text-success'}`}>{fmt(s.profit ?? '0')}</td>}
-              </tr>))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <DataTable<S> title="Sales" endpoint="/sales" exportName="sales" rowKey={(r) => r.id} cols={cols} dates defaultPeriod="month"
+      searchHint="Search invoice, customer or IMEI…" sort={{ key: 'date', dir: 'desc' }}
+      filters={[{ name: 'customer_id', label: 'All customers', options: [{ value: '', label: '' }, { value: 'walkin', label: 'Walk-in' }, ...cust] },
+        { name: 'status', label: 'Any payment', options: [{ value: '', label: '' }, { value: 'due', label: 'Has due' }, { value: 'paid', label: 'Fully paid' }] }]}
+      chips={(t) => [{ label: 'Invoices', value: String(t.count) }, { label: 'Phones', value: n(t.qty), tone: 'text-primary' }, { label: 'Amount', value: n(t.total) },
+        { label: 'Received', value: n(t.received), tone: 'text-success' }, { label: 'Due', value: n(t.due), tone: 'text-danger' },
+        ...(t.profit !== undefined ? [{ label: 'Profit', value: n(t.profit), tone: 'text-success' }] : [])]}
+      actions={<Link href="/sales/new" className="flex h-9 items-center gap-1 rounded-lg bg-primary px-4 text-sm font-semibold text-white"><Plus size={16} /> New sale</Link>} />
   );
 }

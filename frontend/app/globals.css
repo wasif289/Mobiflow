@@ -1,10 +1,9 @@
 @import "tailwindcss";
 
-/* Design tokens extracted from the CodeIgniter layout (layouts/main.php) */
 :root {
   --bg: #f1f5f9; --sidebar: #ffffff; --card: #ffffff; --border: #e2e8f0;
   --text: #1e293b; --muted: #64748b;
-  --primary: #3b82f6; --success: #22c55e; --danger: #ef4444; --warning: #f59e0b;
+  --primary: #2563eb; --success: #22c55e; --danger: #ef4444; --warning: #f59e0b;
 }
 .dark {
   --bg: #0f172a; --sidebar: #1e293b; --card: #1e293b; --border: #334155;

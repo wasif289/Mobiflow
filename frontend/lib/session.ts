@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 export type Branch = { id: number; code: string; name: string; is_main: boolean };
-export type User = { name: string; username: string; role: string; branches: Branch[] };
+export type User = { name: string; username: string; role: string; branches: Branch[]; permissions: string[]; subscription?: { status: string; ends_at: string | null; days_left: number | null } };
 
 type Session = {
   token: string | null; tenant: string; user: User | null; branchId: number | null;

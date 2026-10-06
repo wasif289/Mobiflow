@@ -6,7 +6,7 @@ namespace App\Modules\Identity\Presentation;
 use App\Modules\Identity\Infrastructure\Models\{Branch, User};
 use App\Shared\Exceptions\AppException;
 use Illuminate\Http\{JsonResponse, Request};
-use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\{DB, Hash};
 
 final class AuthController
 {
@@ -48,7 +48,16 @@ final class AuthController
 
         return [
             'name' => $user->name, 'username' => $user->username, 'role' => $user->role,
+            'permissions' => $user->seesAllBranches() ? ['*'] : ($user->permissions ?? []),
+            'subscription' => $this->subscription((int) $user->tenant_id),
             'branches' => $branches,
         ];
+    }
+
+    private function subscription(int $tenantId): array
+    {
+        $t = DB::table('tenants')->where('id', $tenantId)->first(['status', 'trial_ends_at', 'current_period_ends_at']);
+        $end = $t->status === 'trial' ? $t->trial_ends_at : $t->current_period_ends_at;
+        return ['status' => $t->status, 'ends_at' => $end, 'days_left' => $end ? (int) floor(now()->diffInDays(\Illuminate\Support\Carbon::parse($end), false)) : null];
     }
 }

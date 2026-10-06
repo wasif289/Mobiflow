@@ -34,9 +34,6 @@ final class TacController
 
     public function store(Request $request): JsonResponse
     {
-        $request->user()->seesAllBranches()
-            || throw new AppException(403, 'FORBIDDEN', 'Only the owner or an admin can change the catalog.');
-
         $d = $request->validate([
             'tac' => 'required|digits:8',
             'device_model_id' => 'required|integer|exists:device_models,id',

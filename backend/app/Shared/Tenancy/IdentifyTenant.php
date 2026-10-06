@@ -19,7 +19,7 @@ final class IdentifyTenant
         $tenant = DB::table('tenants')->where('slug', strtolower((string) $slug))->whereNull('deleted_at')->first()
             ?? throw new AppException(404, 'TENANT_NOT_FOUND', 'Shop not found. Check the shop code.');
 
-        if ($tenant->status === 'cancelled' || ($tenant->status === 'suspended' && ! $request->isMethodSafe())) {
+        if (! $request->is('api/v1/billing*') && ($tenant->status === 'cancelled' || ($tenant->status === 'suspended' && ! $request->isMethodSafe()))) {
             throw new AppException(402, 'SUBSCRIPTION_INACTIVE', 'This subscription is not active. Renew it to continue.');
         }
 

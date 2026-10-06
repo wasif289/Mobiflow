@@ -12,15 +12,6 @@ use Illuminate\Http\{JsonResponse, Request};
 
 final class PurchaseController
 {
-    public function index(TenantContext $ctx): JsonResponse
-    {
-        $page = Purchase::with('supplier:id,name')
-            ->when($ctx->branchId(), fn ($q, $b) => $q->where('branch_id', $b))
-            ->orderByDesc('purchase_date')->orderByDesc('id')->paginate(25);
-
-        return response()->json($page->through(fn (Purchase $p) => $this->row($p)));
-    }
-
     public function show(Request $request, int $id): JsonResponse
     {
         $p = Purchase::with('supplier:id,name')->findOrFail($id);

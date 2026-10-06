@@ -16,6 +16,7 @@ final class ResolveTenantAndBranch
     public function handle(Request $request, Closure $next)
     {
         $user = $request->user() ?? throw new AppException(401, 'UNAUTHENTICATED', 'Please sign in.');
+        $user instanceof \App\Modules\Identity\Infrastructure\Models\User || throw new AppException(403, 'FORBIDDEN', 'This area is for shop users.');
         $this->ctx->set((int) $user->tenant_id);
 
         $branchId = $request->header('X-Branch-Id');
