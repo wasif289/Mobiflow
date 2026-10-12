@@ -11,6 +11,7 @@ export class ApiError extends Error {
   field(name: string) { return this.problem.errors?.[name]?.[0]; }
 }
 
+<<<<<<< HEAD
 /** Same-origin gateway (app/api/proxy). The login token is an httpOnly cookie that only the gateway can read. */
 const BASE = '/api/proxy';
 const network = () => new ApiError({ title: 'Cannot reach the server. Check your internet connection.', status: 0, code: 'NETWORK' });
@@ -20,6 +21,20 @@ function headers(path: string, tenant?: string): Record<string, string> {
   if (path.startsWith('/platform')) return base;
   const s = useSession.getState();
   return { ...base, 'X-Tenant': tenant ?? s.tenant, ...(s.branchId && { 'X-Branch-Id': String(s.branchId) }) };
+=======
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1';
+const network = () => new ApiError({ title: 'Cannot reach the server. Check your internet connection.', status: 0, code: 'NETWORK' });
+
+/** /platform/* calls use the super-admin token; everything else uses the shop session + branch. */
+function headers(path: string, tenant?: string): Record<string, string> {
+  const base = { Accept: 'application/json', 'X-Request-Id': crypto.randomUUID() };
+  if (path.startsWith('/platform')) {
+    const t = usePlatform.getState().token;
+    return { ...base, ...(t && { Authorization: `Bearer ${t}` }) };
+  }
+  const s = useSession.getState();
+  return { ...base, 'X-Tenant': tenant ?? s.tenant, ...(s.token && { Authorization: `Bearer ${s.token}` }), ...(s.branchId && { 'X-Branch-Id': String(s.branchId) }) };
+>>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
 }
 
 export async function api<T>(path: string, init: RequestInit & { tenant?: string } = {}): Promise<T> {
@@ -36,7 +51,11 @@ export async function api<T>(path: string, init: RequestInit & { tenant?: string
     const problem: Problem = body?.code ? body : { title: 'The server sent an unexpected response.', status: res.status, code: 'BAD_RESPONSE' };
     if (problem.status === 401) {
       if (path.startsWith('/platform')) { if (usePlatform.getState().token) usePlatform.getState().signOut(); }
+<<<<<<< HEAD
       else if (useSession.getState().token && path !== '/auth/login') useSession.getState().signOut(); // session expired: guards send to /login
+=======
+      else if (useSession.getState().token && path !== '/auth/login') useSession.getState().signOut(); // expired token: guards send to /login
+>>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
     }
     throw new ApiError(problem);
   }
@@ -49,7 +68,11 @@ async function blob(path: string): Promise<Blob> {
   return res.blob();
 }
 
+<<<<<<< HEAD
 /** Download a file (e.g. CSV export). */
+=======
+/** Download a file (e.g. CSV export) with the same auth headers as normal calls. */
+>>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
 export async function download(path: string, filename: string): Promise<void> {
   const url = URL.createObjectURL(await blob(path));
   const a = document.createElement('a');

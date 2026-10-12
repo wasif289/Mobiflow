@@ -1,12 +1,18 @@
 <?php
+<<<<<<< HEAD
 
+=======
+>>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
 declare(strict_types=1);
 
 namespace App\Modules\Catalog\Presentation;
 
 use App\Modules\Catalog\Infrastructure\Models\TacMapping;
+<<<<<<< HEAD
 use App\Modules\Identity\Infrastructure\Models\Branch;
 use App\Modules\Inventory\Infrastructure\Models\StockItem;
+=======
+>>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
 use App\Shared\Domain\Imei;
 use App\Shared\Exceptions\AppException;
 use Illuminate\Http\{JsonResponse, Request};
@@ -14,10 +20,14 @@ use InvalidArgumentException;
 
 final class TacController
 {
+<<<<<<< HEAD
     /**
      * GET /imei/{imei}: validate (Luhn), auto-detect brand/model from the first 8 digits, and say whether the phone
      * is already in stock (same rule as CreatePurchase: in_stock / in_transit), so the purchase form can refuse it at scan time.
      */
+=======
+    /** GET /imei/{imei}: validate (Luhn) and auto-detect brand/model from the first 8 digits. */
+>>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
     public function lookup(string $imei): JsonResponse
     {
         try {
@@ -28,13 +38,17 @@ final class TacController
 
         $map = TacMapping::with('deviceModel.brand')->where('tac', $parsed->tac())->first();
 
+<<<<<<< HEAD
         $stock = StockItem::with(['deviceModel.brand', 'purchase.supplier:id,name'])
             ->where('imei', $parsed->value)->whereIn('status', StockItem::ACTIVE)->latest('id')->first();
 
+=======
+>>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
         return response()->json([
             'imei' => $parsed->value,
             'tac' => $parsed->tac(),
             'model' => $map ? [
+<<<<<<< HEAD
                 'id' => $map->deviceModel->id,
                 'name' => $map->deviceModel->name,
                 'brand' => $map->deviceModel->brand->name,
@@ -47,6 +61,11 @@ final class TacController
                 'date' => $stock->purchase?->purchase_date?->toDateString(),
                 'branch' => Branch::whereKey($stock->branch_id)->value('name'),
             ] : null,
+=======
+                'id' => $map->deviceModel->id, 'name' => $map->deviceModel->name,
+                'brand' => $map->deviceModel->brand->name,
+            ] : null,
+>>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
         ]);
     }
 
@@ -57,8 +76,12 @@ final class TacController
             'device_model_id' => 'required|integer|exists:device_models,id',
         ]);
         return response()->json(
+<<<<<<< HEAD
             TacMapping::updateOrCreate(['tac' => $d['tac']], ['device_model_id' => $d['device_model_id']]),
             201
+=======
+            TacMapping::updateOrCreate(['tac' => $d['tac']], ['device_model_id' => $d['device_model_id']]), 201
+>>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
         );
     }
 }

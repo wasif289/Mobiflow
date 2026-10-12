@@ -40,7 +40,11 @@ final class TransferController
             ->selectRaw('t.id, t.transfer_no, t.created_at, t.status, t.note, t.from_branch_id, t.to_branch_id, f.name as from_name, d.name as to_name,
                 (select count(*) from stock_transfer_items x where x.transfer_id = t.id) as qty');
 
+<<<<<<< HEAD
         return L::make($base, $r, ['date' => 't.created_at', 'no' => 't.transfer_no', 'qty' => '(select count(*) from stock_transfer_items x where x.transfer_id = t.id)', 'status' => 't.status'], 'date',
+=======
+        return L::make($base, $r, ['date' => 't.created_at', 'no' => 't.transfer_no', 'qty' => 'qty', 'status' => 't.status'], 'date',
+>>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
             "count(*) c, coalesce(sum(qty),0) qty, count(*) filter (where status = 'pending') pend",
             fn ($x) => ['id' => $x->id, 'transfer_no' => $x->transfer_no, 'date' => substr((string) $x->created_at, 0, 10), 'from_id' => $x->from_branch_id, 'to_id' => $x->to_branch_id,
                 'from' => $x->from_name, 'to' => $x->to_name, 'qty' => (int) $x->qty, 'status' => $x->status, 'note' => $x->note],

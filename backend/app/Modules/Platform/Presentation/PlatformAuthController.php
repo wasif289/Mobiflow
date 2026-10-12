@@ -19,10 +19,13 @@ final class PlatformAuthController
         }
         return response()->json(['token' => $a->createToken('platform', ['platform'])->plainTextToken, 'admin' => ['name' => $a->name, 'email' => $a->email]]);
     }
+<<<<<<< HEAD
 
     public function logout(Request $r): JsonResponse
     {
         $r->user()->currentAccessToken()->delete();
         return response()->json(null, 204);
     }
+=======
+>>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
 }

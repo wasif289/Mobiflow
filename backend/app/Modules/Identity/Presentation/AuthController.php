@@ -33,6 +33,7 @@ final class AuthController
         return response()->json(['user' => $this->payload($request->user())]);
     }
 
+<<<<<<< HEAD
     /** Public details of the user's own shop, for printing receipts. */
     public function shop(Request $request): JsonResponse
     {
@@ -41,6 +42,8 @@ final class AuthController
         return response()->json(['name' => $t->name, 'phone' => $s['phone'] ?? null, 'address' => $s['address'] ?? null, 'footer' => $s['footer'] ?? null]);
     }
 
+=======
+>>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
     public function logout(Request $request): JsonResponse
     {
         $request->user()->currentAccessToken()->delete();

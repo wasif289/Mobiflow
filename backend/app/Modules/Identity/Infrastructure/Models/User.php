@@ -6,7 +6,10 @@ namespace App\Modules\Identity\Infrastructure\Models;
 use App\Shared\Tenancy\BelongsToTenant;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
+<<<<<<< HEAD
 use Illuminate\Support\Str;
+=======
+>>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
 use Laravel\Sanctum\HasApiTokens;
 
 final class User extends Authenticatable
@@ -16,12 +19,15 @@ final class User extends Authenticatable
     protected $fillable = ['name', 'username', 'email', 'password', 'role', 'is_active', 'last_login_at', 'permissions'];
     protected $hidden = ['password', 'remember_token'];
 
+<<<<<<< HEAD
     protected static function booted(): void
     {
         // Public, non-guessable id: always generated here, never taken from input.
         static::creating(fn (self $user) => $user->public_id ??= (string) Str::ulid());
     }
 
+=======
+>>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
     protected function casts(): array
     {
         return ['password' => 'hashed', 'is_active' => 'boolean', 'last_login_at' => 'datetime', 'permissions' => 'array'];

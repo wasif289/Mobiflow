@@ -31,7 +31,11 @@ final class PurchaseListController
                 (select count(*) from stock_items x where x.purchase_id = p.id) as qty');
 
         return L::make($base, $r,
+<<<<<<< HEAD
             ['invoice' => 'p.invoice_no', 'date' => 'p.purchase_date', 'supplier' => 's.name', 'qty' => '(select count(*) from stock_items x where x.purchase_id = p.id)',
+=======
+            ['invoice' => 'p.invoice_no', 'date' => 'p.purchase_date', 'supplier' => 's.name', 'qty' => 'qty',
+>>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
              'total' => 'p.total_minor', 'paid' => 'p.paid_minor', 'due' => '(p.total_minor - p.paid_minor)'], 'date',
             'count(*) c, coalesce(sum(total_minor),0) total, coalesce(sum(paid_minor),0) paid, coalesce(sum(due_minor),0) due, coalesce(sum(qty),0) qty',
             fn ($x) => ['id' => $x->id, 'invoice_no' => $x->invoice_no, 'date' => $x->purchase_date, 'supplier' => $x->supplier,

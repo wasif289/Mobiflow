@@ -36,7 +36,11 @@ export default function Inventory() {
     <DataTable<I> title="Inventory" endpoint="/inventory" exportName="inventory" rowKey={(r) => r.id} cols={cols} dates sort={{ key: 'date', dir: 'desc' }}
       searchHint="Search IMEI, brand, model, supplier, invoice…" initial={{ status: 'in_stock' }}
       filters={[{ name: 'status', label: 'Status', type: 'segment', options: [{ value: 'in_stock', label: 'In stock' }, { value: 'sold', label: 'Sold' },
+<<<<<<< HEAD
           { value: 'in_transit', label: 'In transit' }, { value: 'returned_to_supplier', label: 'Returned to supplier' }, { value: '', label: 'All' }] },
+=======
+          { value: 'returned_to_supplier', label: 'Returned to supplier' }, { value: '', label: 'All' }] },
+>>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
         { name: 'brand_id', label: 'All brands', options: [{ value: '', label: '' }, ...brands] },
         { name: 'supplier_id', label: 'All suppliers', options: [{ value: '', label: '' }, ...sup] }]}
       chips={(t) => [{ label: 'Phones', value: String(t.count), tone: 'text-primary' },
