@@ -16,19 +16,11 @@ export default function LoginPage() {
     const f = new FormData(e.currentTarget);
     setBusy(true); setError(null);
     try {
-<<<<<<< HEAD
       const r = await api<{ user: User }>('/auth/login', {
         method: 'POST', tenant,
         body: JSON.stringify({ username: f.get('username'), password: f.get('password') }),
       });
       signIn('cookie', tenant, r.user);
-=======
-      const r = await api<{ token: string; user: User }>('/auth/login', {
-        method: 'POST', tenant,
-        body: JSON.stringify({ username: f.get('username'), password: f.get('password') }),
-      });
-      signIn(r.token, tenant, r.user);
->>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
       router.replace('/dashboard');
     } catch (err) {
       setError(err instanceof ApiError ? err : null);

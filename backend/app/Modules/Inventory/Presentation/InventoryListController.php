@@ -40,13 +40,8 @@ final class InventoryListController
                 case when si.status = 'sold' then coalesce(cu.name, 'Walk-in') end as customer");
 
         $sorts = ['imei' => 'si.imei', 'brand' => 'b.name', 'model' => 'dm.name', 'entry' => 'p.invoice_no', 'date' => 'p.purchase_date',
-<<<<<<< HEAD
             'supplier' => 's.name', 'sale' => "(case when si.status = 'sold' then li.price_minor end)"];
         $admin && $sorts += ['cost' => 'si.cost_minor', 'profit' => "(case when si.status = 'sold' then li.price_minor - si.cost_minor end)"];
-=======
-            'supplier' => 's.name', 'sale' => 'sale_minor'];
-        $admin && $sorts += ['cost' => 'si.cost_minor', 'profit' => 'profit_minor'];
->>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
 
         return L::make($base, $r, $sorts, 'date',
             'count(*) c, coalesce(sum(cost_minor),0) cost, coalesce(sum(sale_minor),0) sale, coalesce(sum(profit_minor),0) profit',

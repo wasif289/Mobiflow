@@ -2,10 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-<<<<<<< HEAD
 import { api } from '@/lib/api';
-=======
->>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
 import { usePlatform } from '@/lib/platform';
 
 const NAV = [['/platform', 'Overview'], ['/platform/tenants', 'Shops'], ['/platform/payments', 'Payments'], ['/platform/plans', 'Plans & settings']] as const;
@@ -25,11 +22,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
         <b className="mr-4 text-primary">MobiFlow Platform</b>
         {NAV.map(([h, l]) => <Link key={h} href={h} className={`rounded-lg px-3 py-1.5 text-sm ${path === h ? 'bg-primary text-white' : 'text-muted hover:bg-bg'}`}>{l}</Link>)}
         <span className="ml-auto text-sm text-muted">{admin?.email}</span>
-<<<<<<< HEAD
         <button onClick={async () => { await api('/platform/auth/logout', { method: 'POST' }).catch(() => {}); signOut(); router.replace('/platform/login'); }} className="rounded-lg px-3 py-1.5 text-sm text-danger hover:bg-danger/10">Sign out</button>
-=======
-        <button onClick={() => { signOut(); router.replace('/platform/login'); }} className="rounded-lg px-3 py-1.5 text-sm text-danger hover:bg-danger/10">Sign out</button>
->>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
       </header>
       <main className="p-4">{children}</main>
     </div>

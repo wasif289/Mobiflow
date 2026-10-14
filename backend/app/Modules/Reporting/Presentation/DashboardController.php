@@ -37,7 +37,6 @@ final class DashboardController
             ->get(['s.id', 's.invoice_no', 's.sale_date', 'c.name as customer', 's.total_minor'])
             ->map(fn ($x) => ['id' => $x->id, 'invoice_no' => $x->invoice_no, 'date' => $x->sale_date, 'customer' => $x->customer ?? 'Walk-in', 'total' => L::m($x->total_minor)]);
 
-<<<<<<< HEAD
         $trend = DB::table('sale_items as i')->join('sales as s', 's.id', '=', 'i.sale_id')->where('s.tenant_id', $t)
             ->when($b, fn ($q) => $q->where('s.branch_id', $b))->whereBetween('s.sale_date', [$from, $to])
             ->whereNotExists(fn ($e) => $e->selectRaw('1')->from('sale_return_items as x')->whereColumn('x.sale_item_id', 'i.id'))
@@ -49,12 +48,6 @@ final class DashboardController
         return response()->json([
             'from' => $from, 'to' => $to, 'sales' => L::m($lines->amt), 'qty_sold' => (int) $lines->q, 'purchases' => L::m($bought),
             'expenses' => L::m($spent), 'in_stock' => $stock, 'receivable' => L::m($recv), 'payable' => L::m($pay), 'recent' => $recent, 'trend' => $trend,
-=======
-        $profit = (int) $lines->amt - (int) $lines->cost;
-        return response()->json([
-            'from' => $from, 'to' => $to, 'sales' => L::m($lines->amt), 'qty_sold' => (int) $lines->q, 'purchases' => L::m($bought),
-            'expenses' => L::m($spent), 'in_stock' => $stock, 'receivable' => L::m($recv), 'payable' => L::m($pay), 'recent' => $recent,
->>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
         ] + ($admin ? ['profit' => L::m($profit), 'net_profit' => L::m($profit - $spent)] : []));
     }
 }

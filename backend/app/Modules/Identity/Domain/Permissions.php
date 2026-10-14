@@ -13,21 +13,14 @@ final class Permissions
         'sales'     => ['view', 'create'],
         'returns'   => ['create'],
         'inventory' => ['view'],
-<<<<<<< HEAD
         'transfers' => ['view', 'create'],
-=======
->>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
         'accounts'  => ['view', 'create'],
         'expenses'  => ['view', 'create', 'delete'],
     ];
 
     public const PRESETS = [
         'Cashier'      => ['dashboard.view', 'sales.view', 'sales.create', 'inventory.view'],
-<<<<<<< HEAD
         'Stock keeper' => ['dashboard.view', 'purchases.view', 'purchases.create', 'inventory.view', 'catalog.manage', 'transfers.view', 'transfers.create'],
-=======
-        'Stock keeper' => ['dashboard.view', 'purchases.view', 'purchases.create', 'inventory.view', 'catalog.manage'],
->>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
         'View only'    => ['dashboard.view', 'purchases.view', 'sales.view', 'inventory.view', 'accounts.view', 'expenses.view'],
     ];
 

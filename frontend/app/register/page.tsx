@@ -24,17 +24,10 @@ export default function RegisterPage() {
     const body = Object.fromEntries(new FormData(e.currentTarget));
     setBusy(true); setError(null);
     try {
-<<<<<<< HEAD
       const r = await api<{ user: User; tenant: string }>('/auth/register', {
         method: 'POST', tenant: 'none', body: JSON.stringify(body),
       });
       signIn('cookie', r.tenant, r.user);
-=======
-      const r = await api<{ token: string; user: User; tenant: string }>('/auth/register', {
-        method: 'POST', tenant: 'none', body: JSON.stringify(body),
-      });
-      signIn(r.token, r.tenant, r.user);
->>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
       router.replace('/dashboard');
     } catch (err) {
       setError(err instanceof ApiError ? err : null);

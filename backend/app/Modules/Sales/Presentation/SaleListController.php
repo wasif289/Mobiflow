@@ -34,11 +34,7 @@ final class SaleListController
                 (select count(*) from sale_items x where x.sale_id = s.id) as qty,
                 (select coalesce(sum(x.cost_minor),0) from sale_items x where x.sale_id = s.id) as cost_minor');
 
-<<<<<<< HEAD
         $sorts = ['invoice' => 's.invoice_no', 'date' => 's.sale_date', 'customer' => 'c.name', 'qty' => '(select count(*) from sale_items x where x.sale_id = s.id)',
-=======
-        $sorts = ['invoice' => 's.invoice_no', 'date' => 's.sale_date', 'customer' => 'c.name', 'qty' => 'qty',
->>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
             'total' => 's.total_minor', 'received' => 's.received_minor', 'due' => '(s.total_minor - s.received_minor)'];
         $admin && $sorts['profit'] = '(s.total_minor - (select coalesce(sum(y.cost_minor),0) from sale_items y where y.sale_id = s.id))';
 

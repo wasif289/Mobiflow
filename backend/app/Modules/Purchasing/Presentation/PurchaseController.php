@@ -3,10 +3,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Purchasing\Presentation;
 
-<<<<<<< HEAD
 use App\Modules\Identity\Infrastructure\Models\User;
-=======
->>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
 use App\Modules\Inventory\Infrastructure\Models\StockItem;
 use App\Modules\Purchasing\Application\CreatePurchase;
 use App\Modules\Purchasing\Infrastructure\Models\{Purchase, Supplier};
@@ -19,7 +16,6 @@ final class PurchaseController
     public function show(Request $request, int $id): JsonResponse
     {
         $p = Purchase::with('supplier:id,name')->findOrFail($id);
-<<<<<<< HEAD
         $items = StockItem::with(['deviceModel.brand', 'variant:id,name', 'color:id,name'])->where('purchase_id', $id)->get()
             ->map(fn ($i) => [
                 'imei' => $i->imei, 'status' => $i->status,
@@ -30,15 +26,6 @@ final class PurchaseController
         return response()->json($this->row($p) + [
             'note' => $p->note, 'created_by' => User::whereKey($p->created_by)->value('name'), 'items' => $items,
         ]);
-=======
-        $items = StockItem::with(['deviceModel.brand', 'color:id,name'])->where('purchase_id', $id)->get()
-            ->map(fn ($i) => [
-                'imei' => $i->imei, 'status' => $i->status,
-                'model' => $i->deviceModel->brand->name . ' ' . $i->deviceModel->name, 'color' => $i->color?->name,
-            ] + ($request->user()->seesAllBranches() ? ['cost' => Money::ofMinor($i->cost_minor)->toDecimal()] : []));
-
-        return response()->json($this->row($p) + ['items' => $items]);
->>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
     }
 
     public function store(Request $request, CreatePurchase $create): JsonResponse
@@ -82,8 +69,4 @@ final class PurchaseController
             'due' => $total->sub($paid)->toDecimal(),
         ];
     }
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281

@@ -31,11 +31,8 @@ final class ListResponse
     public static function make(Builder $base, Request $r, array $sorts, string $default, string $totalsSql,
                                 Closure $row, Closure $totals, string $file): JsonResponse|StreamedResponse
     {
-<<<<<<< HEAD
         $base = clone $base;
         self::columnFilters($base, $r, $sorts);
-=======
->>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
         $expr = $sorts[$r->query('sort')] ?? $sorts[$default];
         $dir = $r->query('dir') === 'asc' ? 'ASC' : 'DESC';
         $ordered = (clone $base)->orderByRaw("{$expr} {$dir} NULLS LAST")->orderByRaw('1 DESC');
@@ -65,7 +62,6 @@ final class ListResponse
             'totals' => $totals($t),
         ]);
     }
-<<<<<<< HEAD
 
     /**
      * Inline column filters from the table header: cf[col]=text (contains), cfmin[col] / cfmax[col] (numbers).
@@ -87,6 +83,4 @@ final class ListResponse
             }
         }
     }
-=======
->>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
 }

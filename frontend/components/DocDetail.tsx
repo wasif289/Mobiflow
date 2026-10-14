@@ -24,12 +24,9 @@ export default function DocDetail({ kind, id }: { kind: 'purchase' | 'sale'; id:
   }, [base, id]);
   useEffect(load, [load]);
 
-<<<<<<< HEAD
   // /purchases/{id}?print=1 (Save & print) opens the browser print dialog once the document has loaded
   useEffect(() => { if (doc && new URLSearchParams(window.location.search).get('print') === '1') setTimeout(() => window.print(), 300); }, [doc]);
 
-=======
->>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
   const returnable = (i: Item) => (kind === 'purchase' ? i.status === 'in_stock' : !i.returned);
   const label = (i: Item) => (kind === 'purchase' ? (i.status ?? '').replace(/_/g, ' ') : i.returned ? 'returned' : 'sold');
   const toggle = (imei: string) => setPicked((p) => { const n = new Set(p); n.has(imei) ? n.delete(imei) : n.add(imei); return n; });
@@ -82,8 +79,4 @@ export default function DocDetail({ kind, id }: { kind: 'purchase' | 'sale'; id:
         </div>)}
     </div>
   );
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 5737d4ae512e152ecdddc237fb709be49f953281
