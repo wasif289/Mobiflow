@@ -7,7 +7,7 @@ it('never shows one shop\'s data to another shop', function () {
     $b = registerShop('shop-b');
     $bought = buy($a, [IMEIS[0]]);
 
-    call($b, 'GET', '/catalog/brands')->assertOk()->assertJsonPath('meta.total', 0);
+    call($b, 'GET', '/catalog/brands')->assertOk()->assertJsonPath('total', 0);
     call($b, 'GET', '/purchases')->assertOk()->assertJsonPath('meta.total', 0);
     call($b, 'GET', "/purchases/{$bought['purchase']}")->assertNotFound();
     call($b, 'GET', '/inventory')->assertOk()->assertJsonPath('meta.total', 0);
