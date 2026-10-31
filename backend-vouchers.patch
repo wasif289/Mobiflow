@@ -1,0 +1,475 @@
+diff --git a/backend/app/Modules/Accounting/Application/CreateVoucher.php b/backend/app/Modules/Accounting/Application/CreateVoucher.php
+index 91ca15f..8cb6b6d 100644
+--- a/backend/app/Modules/Accounting/Application/CreateVoucher.php
++++ b/backend/app/Modules/Accounting/Application/CreateVoucher.php
+@@ -9,7 +9,10 @@
+ use App\Shared\Tenancy\TenantContext;
+ use Illuminate\Support\Facades\DB;
+ 
+-/** Use case: record money paid out (payment) or received (receipt) against a supplier/customer. */
++/**
++ * Use case: record money paid out (payment) or received (receipt) against a supplier/customer.
++ * Optionally settles one bill (purchase for a payment, sale for a receipt): the bill's paid/received amount moves with it.
++ */
+ final class CreateVoucher
+ {
+     public function __construct(
+@@ -28,12 +31,15 @@ public function __invoke(array $d, int $userId): array
+             || throw new AppException(422, 'PARTY_NOT_FOUND', 'That party does not exist.', ['party_id' => ['Not found']]);
+ 
+         return DB::transaction(function () use ($d, $userId, $branchId, $amount) {
++            [$bill, $billNo] = $this->settleBill($d, $amount);
++            $d['bill_ref'] = ($d['bill_ref'] ?? null) ?: $billNo;
+             $no = $this->numbers->next('voucher', 'VO', $branchId);
+             $id = DB::table('vouchers')->insertGetId([
+                 'tenant_id' => $this->ctx->tenantId(), 'branch_id' => $branchId, 'voucher_no' => $no,
+                 'party_type' => $d['party_type'], 'party_id' => $d['party_id'], 'direction' => $d['direction'],
+                 'method' => $d['method'], 'amount_minor' => $amount->minor, 'bill_ref' => $d['bill_ref'] ?? null,
+                 'notes' => $d['notes'] ?? null, 'voucher_date' => $d['voucher_date'], 'created_by' => $userId,
++                'purchase_id' => $bill['purchase'] ?? null, 'sale_id' => $bill['sale'] ?? null,
+                 'created_at' => now(), 'updated_at' => now(),
+             ]);
+ 
+@@ -45,4 +51,37 @@ public function __invoke(array $d, int $userId): array
+             return ['id' => $id, 'voucher_no' => $no];
+         });
+     }
++
++    /**
++     * Locks the bill row and moves its paid amount. A payment can only settle a purchase of the same supplier,
++     * a receipt only a sale of the same customer, and never more than what is still due.
++     *
++     * @return array{0: array<string,int>, 1: ?string} [link columns, invoice number]
++     */
++    private function settleBill(array $d, Money $amount): array
++    {
++        $purchaseId = $d['purchase_id'] ?? null;
++        $saleId = $d['sale_id'] ?? null;
++        if (! $purchaseId && ! $saleId) {
++            return [[], null];
++        }
++        ($purchaseId && $saleId) && throw new AppException(422, 'ONE_BILL_ONLY', 'A voucher can settle one bill at a time.');
++
++        [$field, $table, $paidCol, $partyCol, $wantType, $wantDirection, $id, $label] = $purchaseId
++            ? ['purchase_id', 'purchases', 'paid_minor', 'supplier_id', 'supplier', 'payment', (int) $purchaseId, 'purchase']
++            : ['sale_id', 'sales', 'received_minor', 'customer_id', 'customer', 'receipt', (int) $saleId, 'sale'];
++
++        ($d['party_type'] === $wantType && $d['direction'] === $wantDirection)
++            || throw new AppException(422, 'BILL_MISMATCH', $purchaseId ? 'A purchase bill can only be settled by a supplier payment.' : 'A sale can only be settled by a customer receipt.', [$field => ['Wrong voucher type for this bill']]);
++
++        $bill = DB::table($table)->where('tenant_id', $this->ctx->tenantId())->where('id', $id)->where($partyCol, $d['party_id'])->lockForUpdate()->first()
++            ?? throw new AppException(422, 'BILL_NOT_FOUND', 'That bill does not belong to this party.', [$field => ['Not found']]);
++
++        $due = $bill->total_minor - $bill->{$paidCol};
++        $amount->minor <= $due || throw new AppException(422, 'OVER_BILL', "That is more than the {$label} still owes (" . Money::ofMinor($due)->toDecimal() . ').', ['amount' => ['More than the bill due ' . Money::ofMinor($due)->toDecimal()]]);
++
++        DB::table($table)->where('id', $id)->update([$paidCol => $bill->{$paidCol} + $amount->minor]);
++
++        return [[($purchaseId ? 'purchase' : 'sale') => $id], $bill->invoice_no];
++    }
+ }
+diff --git a/backend/app/Modules/Accounting/Presentation/AccountController.php b/backend/app/Modules/Accounting/Presentation/AccountController.php
+index 13cc4e0..4b6c61b 100644
+--- a/backend/app/Modules/Accounting/Presentation/AccountController.php
++++ b/backend/app/Modules/Accounting/Presentation/AccountController.php
+@@ -53,8 +53,72 @@ public function storeVoucher(Request $request, CreateVoucher $create): JsonRespo
+             'party_type' => 'required|in:supplier,customer', 'party_id' => 'required|integer',
+             'direction' => 'required|in:payment,receipt', 'method' => 'required|in:cash,bank,jazzcash,easypaisa,cheque',
+             'amount' => ['required', 'regex:/^\d+(\.\d{1,2})?$/'], 'bill_ref' => 'nullable|string|max:60',
++            'purchase_id' => 'nullable|integer', 'sale_id' => 'nullable|integer',
+             'notes' => 'nullable|string|max:300', 'voucher_date' => 'required|date',
+         ]);
+         return response()->json($create($d, (int) $request->user()->id), 201);
+     }
++
++    /** What the voucher form needs for one party: who they are, what is owed, and the unpaid bills a voucher can settle. */
++    public function open(TenantContext $ctx, string $type, int $id): JsonResponse
++    {
++        $tid = $ctx->tenantId();
++        $party = DB::table($type === 'supplier' ? 'suppliers' : 'customers')->where('tenant_id', $tid)->where('id', $id)->first(['id', 'name', 'phone'])
++            ?? throw new AppException(404, 'NOT_FOUND', 'The requested resource was not found.');
++        $balance = (int) DB::table('ledger_entries')->where('tenant_id', $tid)->where('party_type', $type)->where('party_id', $id)
++            ->selectRaw('COALESCE(SUM(' . self::SIGNED[$type] . '), 0) AS b')->value('b');
++
++        [$table, $partyCol, $paidCol, $dateCol] = $type === 'supplier' ? ['purchases', 'supplier_id', 'paid_minor', 'purchase_date'] : ['sales', 'customer_id', 'received_minor', 'sale_date'];
++        $bills = DB::table($table)->where('tenant_id', $tid)->where($partyCol, $id)->whereRaw("total_minor > {$paidCol}")
++            ->orderBy($dateCol)->orderBy('id')->limit(100)->get(['id', 'invoice_no', $dateCol . ' as date', 'total_minor', $paidCol . ' as paid_minor'])
++            ->map(fn ($b) => ['id' => $b->id, 'invoice_no' => $b->invoice_no, 'date' => substr((string) $b->date, 0, 10),
++                'total' => Money::ofMinor((int) $b->total_minor)->toDecimal(), 'paid' => Money::ofMinor((int) $b->paid_minor)->toDecimal(),
++                'due' => Money::ofMinor((int) $b->total_minor - (int) $b->paid_minor)->toDecimal()]);
++
++        return response()->json(['party' => $party, 'balance' => Money::ofMinor($balance)->toDecimal(), 'bills' => $bills]);
++    }
++
++    /** Recent vouchers of the selected branch (for the "recent" list in the voucher window). */
++    public function vouchers(Request $request, TenantContext $ctx): JsonResponse
++    {
++        $rows = DB::table('vouchers as v')
++            ->leftJoin('suppliers as s', fn ($j) => $j->on('s.id', '=', 'v.party_id')->where('v.party_type', 'supplier'))
++            ->leftJoin('customers as c', fn ($j) => $j->on('c.id', '=', 'v.party_id')->where('v.party_type', 'customer'))
++            ->where('v.tenant_id', $ctx->tenantId())
++            ->when($ctx->branchId(), fn ($q, $b) => $q->where('v.branch_id', $b))
++            ->when(in_array($request->query('direction'), ['payment', 'receipt'], true), fn ($q) => $q->where('v.direction', $request->query('direction')))
++            ->orderByDesc('v.id')->limit(min(50, max(1, (int) ($request->query('limit') ?: 15))))
++            ->get(['v.id', 'v.voucher_no', 'v.voucher_date', 'v.direction', 'v.method', 'v.amount_minor', 'v.bill_ref', DB::raw('COALESCE(s.name, c.name) AS party')]);
++
++        return response()->json($rows->map(fn ($v) => ['id' => $v->id, 'voucher_no' => $v->voucher_no, 'date' => substr((string) $v->voucher_date, 0, 10),
++            'direction' => $v->direction, 'method' => $v->method, 'amount' => Money::ofMinor((int) $v->amount_minor)->toDecimal(), 'bill_ref' => $v->bill_ref, 'party' => $v->party]));
++    }
++
++    /** Everything the printed slip shows, including the party's balance right after this voucher. */
++    public function voucher(TenantContext $ctx, int $id): JsonResponse
++    {
++        $tid = $ctx->tenantId();
++        $v = DB::table('vouchers')->where('tenant_id', $tid)->where('id', $id)->first() ?? throw new AppException(404, 'NOT_FOUND', 'The requested resource was not found.');
++        $party = DB::table($v->party_type === 'supplier' ? 'suppliers' : 'customers')->where('tenant_id', $tid)->where('id', $v->party_id)->first(['name', 'phone']);
++        $expr = self::SIGNED[$v->party_type];
++        $after = DB::selectOne("SELECT bal FROM (SELECT ref_type, ref_id, SUM({$expr}) OVER (ORDER BY entry_date, id) AS bal
++            FROM ledger_entries WHERE tenant_id = ? AND party_type = ? AND party_id = ?) t WHERE ref_type = 'voucher' AND ref_id = ?", [$tid, $v->party_type, $v->party_id, $v->id]);
++
++        $bill = null;
++        if ($v->purchase_id || $v->sale_id) {
++            [$table, $billId, $paidCol, $dateCol] = $v->purchase_id ? ['purchases', $v->purchase_id, 'paid_minor', 'purchase_date'] : ['sales', $v->sale_id, 'received_minor', 'sale_date'];
++            $b = DB::table($table)->where('tenant_id', $tid)->where('id', $billId)->first();
++            $b && $bill = ['invoice_no' => $b->invoice_no, 'date' => substr((string) $b->{$dateCol}, 0, 10), 'total' => Money::ofMinor((int) $b->total_minor)->toDecimal(),
++                'paid' => Money::ofMinor((int) $b->{$paidCol})->toDecimal(), 'due' => Money::ofMinor((int) $b->total_minor - (int) $b->{$paidCol})->toDecimal()];
++        }
++
++        return response()->json([
++            'kind' => 'party', 'id' => $v->id, 'voucher_no' => $v->voucher_no, 'direction' => $v->direction, 'date' => substr((string) $v->voucher_date, 0, 10),
++            'party_type' => $v->party_type, 'party' => $party?->name, 'phone' => $party?->phone, 'method' => $v->method,
++            'amount' => Money::ofMinor((int) $v->amount_minor)->toDecimal(), 'bill_ref' => $v->bill_ref, 'notes' => $v->notes, 'bill' => $bill,
++            'balance' => $after ? Money::ofMinor((int) $after->bal)->toDecimal() : null,
++            'by' => DB::table('users')->where('id', $v->created_by)->value('name'), 'branch' => DB::table('branches')->where('id', $v->branch_id)->value('name'),
++            'created_at' => (string) $v->created_at,
++        ]);
++    }
+ }
+diff --git a/backend/app/Modules/Expenses/Presentation/ExpenseController.php b/backend/app/Modules/Expenses/Presentation/ExpenseController.php
+index fc4edef..03ad96f 100644
+--- a/backend/app/Modules/Expenses/Presentation/ExpenseController.php
++++ b/backend/app/Modules/Expenses/Presentation/ExpenseController.php
+@@ -6,6 +6,7 @@
+ use App\Shared\Domain\Money;
+ use App\Shared\Exceptions\AppException;
+ use App\Shared\Http\ListResponse as L;
++use App\Shared\Numbering\NumberSequence;
+ use App\Shared\Tenancy\TenantContext;
+ use Illuminate\Http\{JsonResponse, Request};
+ use Illuminate\Support\Facades\DB;
+@@ -33,19 +34,20 @@ public function index(Request $r, TenantContext $ctx)
+             ->when($r->query('from'), fn ($q, $v) => $q->whereDate('e.expense_date', '>=', $v))
+             ->when($r->query('to'), fn ($q, $v) => $q->whereDate('e.expense_date', '<=', $v))
+             ->when(trim((string) $r->query('q')), fn ($q, $s) => $q->where(fn ($w) => $w->where('e.notes', 'ilike', L::like($s))->orWhere('h.name', 'ilike', L::like($s))))
+-            ->selectRaw('e.id, e.expense_date, h.name as head, e.notes, e.amount_minor, u.name as by');
++            ->selectRaw('e.id, e.expense_date, e.voucher_no, e.method, h.name as head, e.notes, e.amount_minor, u.name as by');
+ 
+         return L::make($base, $r, ['date' => 'e.expense_date', 'head' => 'h.name', 'amount' => 'e.amount_minor'], 'date',
+             'count(*) c, coalesce(sum(amount_minor),0) total',
+-            fn ($x) => ['id' => $x->id, 'date' => $x->expense_date, 'head' => $x->head, 'notes' => $x->notes, 'amount' => L::m($x->amount_minor), 'by' => $x->by],
++            fn ($x) => ['id' => $x->id, 'date' => $x->expense_date, 'voucher_no' => $x->voucher_no, 'head' => $x->head, 'method' => $x->method, 'notes' => $x->notes, 'amount' => L::m($x->amount_minor), 'by' => $x->by],
+             fn ($t) => ['count' => (int) $t->c, 'total' => L::m($t->total)], 'expenses');
+     }
+ 
+-    public function store(Request $r, TenantContext $ctx): JsonResponse
++    public function store(Request $r, TenantContext $ctx, NumberSequence $numbers): JsonResponse
+     {
+         $d = $r->validate([
+             'expense_head_id' => 'required|integer', 'amount' => ['required', 'regex:/^\d+(\.\d{1,2})?$/'],
+             'expense_date' => 'required|date', 'notes' => 'nullable|string|max:300',
++            'method' => 'nullable|in:cash,bank,jazzcash,easypaisa,cheque',
+         ]);
+         $branch = $ctx->branchId() ?? throw new AppException(422, 'BRANCH_REQUIRED', 'Select a branch first.');
+         $amount = Money::parse($d['amount']);
+@@ -53,11 +55,28 @@ public function store(Request $r, TenantContext $ctx): JsonResponse
+         DB::table('expense_heads')->where('tenant_id', $ctx->tenantId())->where('id', $d['expense_head_id'])->exists()
+             || throw new AppException(422, 'HEAD_NOT_FOUND', 'Pick a valid expense head.', ['expense_head_id' => ['Not found']]);
+ 
+-        $id = DB::table('expenses')->insertGetId([
+-            'tenant_id' => $ctx->tenantId(), 'branch_id' => $branch, 'expense_head_id' => $d['expense_head_id'], 'amount_minor' => $amount->minor,
+-            'expense_date' => $d['expense_date'], 'notes' => $d['notes'] ?? null, 'created_by' => $r->user()->id, 'created_at' => now(), 'updated_at' => now(),
++        return DB::transaction(function () use ($d, $r, $ctx, $branch, $amount, $numbers) {
++            $no = $numbers->next('expense_voucher', 'EV', $branch);
++            $id = DB::table('expenses')->insertGetId([
++                'tenant_id' => $ctx->tenantId(), 'branch_id' => $branch, 'expense_head_id' => $d['expense_head_id'], 'amount_minor' => $amount->minor,
++                'expense_date' => $d['expense_date'], 'notes' => $d['notes'] ?? null, 'method' => $d['method'] ?? 'cash', 'voucher_no' => $no,
++                'created_by' => $r->user()->id, 'created_at' => now(), 'updated_at' => now(),
++            ]);
++            return response()->json(['id' => $id, 'voucher_no' => $no], 201);
++        });
++    }
++
++    /** Everything the printed expense voucher shows. Older expenses (before vouchers) get a fallback number. */
++    public function show(TenantContext $ctx, int $id): JsonResponse
++    {
++        $e = DB::table('expenses as e')->join('expense_heads as h', 'h.id', '=', 'e.expense_head_id')->where('e.tenant_id', $ctx->tenantId())->where('e.id', $id)
++            ->first(['e.*', 'h.name as head']) ?? throw new AppException(404, 'NOT_FOUND', 'The requested resource was not found.');
++        return response()->json([
++            'kind' => 'expense', 'id' => $e->id, 'voucher_no' => $e->voucher_no ?? 'EXP-' . str_pad((string) $e->id, 5, '0', STR_PAD_LEFT), 'date' => substr((string) $e->expense_date, 0, 10),
++            'head' => $e->head, 'method' => $e->method, 'amount' => Money::ofMinor((int) $e->amount_minor)->toDecimal(), 'notes' => $e->notes,
++            'by' => DB::table('users')->where('id', $e->created_by)->value('name'), 'branch' => DB::table('branches')->where('id', $e->branch_id)->value('name'),
++            'created_at' => (string) $e->created_at,
+         ]);
+-        return response()->json(['id' => $id], 201);
+     }
+ 
+     public function destroy(Request $r, TenantContext $ctx, int $id): JsonResponse
+diff --git a/backend/app/Modules/Inventory/Presentation/StockController.php b/backend/app/Modules/Inventory/Presentation/StockController.php
+index 0887b0c..3e38d5d 100644
+--- a/backend/app/Modules/Inventory/Presentation/StockController.php
++++ b/backend/app/Modules/Inventory/Presentation/StockController.php
+@@ -5,9 +5,10 @@
+ 
+ use App\Modules\Inventory\Infrastructure\Models\StockItem;
+ use App\Shared\Domain\{Imei, Money};
+-use App\Shared\Exceptions\{AppException, ImeiAlreadySold};
++use App\Shared\Exceptions\AppException;
+ use App\Shared\Tenancy\TenantContext;
+ use Illuminate\Http\{JsonResponse, Request};
++use Illuminate\Support\Facades\DB;
+ use InvalidArgumentException;
+ 
+ final class StockController
+@@ -21,10 +22,20 @@ public function lookup(Request $request, TenantContext $ctx, string $imei): Json
+             throw new AppException(422, 'INVALID_IMEI', 'This IMEI is not valid. Check the 15 digits.', ['imei' => ['Invalid IMEI']]);
+         }
+ 
+-        $s = StockItem::with(['deviceModel.brand', 'color:id,name'])->where('imei', $imei)->orderByDesc('id')->first()
++        $s = StockItem::with(['deviceModel.brand', 'variant:id,name', 'color:id,name'])->where('imei', $imei)->orderByDesc('id')->first()
+             ?? throw new AppException(404, 'NOT_IN_STOCK', 'This IMEI was never purchased in this shop.');
+ 
+-        $s->status === 'sold' && throw new ImeiAlreadySold($imei);
++        if ($s->status === 'sold') {   // tell the cashier which sale it went out on
++            $sale = DB::table('sale_items')->join('sales', 'sales.id', '=', 'sale_items.sale_id')
++                ->leftJoin('customers', 'customers.id', '=', 'sales.customer_id')
++                ->where('sale_items.stock_item_id', $s->id)->orderByDesc('sale_items.id')
++                ->first(['sales.invoice_no', 'sales.sale_date', 'customers.name as customer']);
++            throw new AppException(409, 'STOCK_ALREADY_SOLD', 'This IMEI is already sold.', ['imei' => [$imei]] + ($sale ? [
++                'sold_invoice' => [(string) $sale->invoice_no],
++                'sold_date' => [substr((string) $sale->sale_date, 0, 10)],
++                'sold_customer' => [$sale->customer ?? 'Walk-in'],
++            ] : []));
++        }
+         $s->status !== 'in_stock' && throw new AppException(409, 'NOT_AVAILABLE', "This phone is not available for sale ({$s->status}).");
+         ($ctx->branchId() && (int) $s->branch_id !== $ctx->branchId())
+             && throw new AppException(409, 'IN_OTHER_BRANCH', 'This phone is in another branch.');
+@@ -36,7 +47,8 @@ private function row(StockItem $s, Request $request): array
+     {
+         return [
+             'imei' => $s->imei, 'status' => $s->status,
+-            'model' => $s->deviceModel->brand->name . ' ' . $s->deviceModel->name, 'color' => $s->color?->name,
++            'model' => $s->deviceModel->brand->name . ' ' . $s->deviceModel->name, 'brand' => $s->deviceModel->brand->name,
++            'model_name' => $s->deviceModel->name, 'variant' => $s->variant?->name, 'color' => $s->color?->name,
+         ] + ($request->user()->seesAllBranches() ? ['cost' => Money::ofMinor($s->cost_minor)->toDecimal()] : []);
+     }
+ }
+diff --git a/backend/app/Modules/Purchasing/Presentation/PurchaseController.php b/backend/app/Modules/Purchasing/Presentation/PurchaseController.php
+index 6994e10..4939c46 100644
+--- a/backend/app/Modules/Purchasing/Presentation/PurchaseController.php
++++ b/backend/app/Modules/Purchasing/Presentation/PurchaseController.php
+@@ -64,7 +64,7 @@ private function row(Purchase $p): array
+         $total = Money::ofMinor($p->total_minor);
+         $paid = Money::ofMinor($p->paid_minor);
+         return [
+-            'id' => $p->id, 'invoice_no' => $p->invoice_no, 'purchase_date' => $p->purchase_date->toDateString(),
++            'id' => $p->id, 'invoice_no' => $p->invoice_no, 'purchase_date' => $p->purchase_date->toDateString(), 'supplier_id' => $p->supplier_id,
+             'supplier' => $p->supplier?->name, 'total' => $total->toDecimal(), 'paid' => $paid->toDecimal(),
+             'due' => $total->sub($paid)->toDecimal(),
+         ];
+diff --git a/backend/app/Modules/Sales/Presentation/SaleController.php b/backend/app/Modules/Sales/Presentation/SaleController.php
+index 408124c..fc2a5ca 100644
+--- a/backend/app/Modules/Sales/Presentation/SaleController.php
++++ b/backend/app/Modules/Sales/Presentation/SaleController.php
+@@ -60,7 +60,7 @@ private function row(Sale $s, Request $request): array
+         $total = Money::ofMinor($s->total_minor);
+         $received = Money::ofMinor($s->received_minor);
+         $row = [
+-            'id' => $s->id, 'invoice_no' => $s->invoice_no, 'sale_date' => $s->sale_date->toDateString(),
++            'id' => $s->id, 'invoice_no' => $s->invoice_no, 'sale_date' => $s->sale_date->toDateString(), 'customer_id' => $s->customer_id,
+             'customer' => $s->customer?->name, 'total' => $total->toDecimal(),
+             'received' => $received->toDecimal(), 'due' => $total->sub($received)->toDecimal(),
+         ];
+diff --git a/backend/database/migrations/2026_10_13_000001_voucher_links_and_expense_vouchers.php b/backend/database/migrations/2026_10_13_000001_voucher_links_and_expense_vouchers.php
+new file mode 100644
+index 0000000..e70a5a9
+--- /dev/null
++++ b/backend/database/migrations/2026_10_13_000001_voucher_links_and_expense_vouchers.php
+@@ -0,0 +1,43 @@
++<?php
++
++declare(strict_types=1);
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\{DB, Schema};
++
++/**
++ * Every payment now goes through a voucher:
++ *  - a supplier payment / customer receipt can be linked to the bill it settles (purchase_id / sale_id),
++ *  - an expense gets its own printable voucher number and payment method.
++ */
++return new class extends Migration {
++    public function up(): void
++    {
++        Schema::table('vouchers', function (Blueprint $t) {
++            $t->unsignedBigInteger('purchase_id')->nullable();
++            $t->unsignedBigInteger('sale_id')->nullable();
++            $t->index(['tenant_id', 'purchase_id']);
++            $t->index(['tenant_id', 'sale_id']);
++        });
++        DB::statement('ALTER TABLE vouchers ADD CONSTRAINT vouchers_one_bill_chk CHECK (purchase_id IS NULL OR sale_id IS NULL)');
++
++        Schema::table('expenses', function (Blueprint $t) {
++            $t->string('voucher_no', 40)->nullable();
++            $t->string('method', 12)->default('cash');
++        });
++        DB::statement('CREATE UNIQUE INDEX expenses_voucher_no_uq ON expenses (tenant_id, voucher_no) WHERE voucher_no IS NOT NULL');
++    }
++
++    public function down(): void
++    {
++        DB::statement('DROP INDEX IF EXISTS expenses_voucher_no_uq');
++        Schema::table('expenses', fn (Blueprint $t) => $t->dropColumn(['voucher_no', 'method']));
++        DB::statement('ALTER TABLE vouchers DROP CONSTRAINT IF EXISTS vouchers_one_bill_chk');
++        Schema::table('vouchers', function (Blueprint $t) {
++            $t->dropIndex(['tenant_id', 'purchase_id']);
++            $t->dropIndex(['tenant_id', 'sale_id']);
++            $t->dropColumn(['purchase_id', 'sale_id']);
++        });
++    }
++};
+diff --git a/backend/routes/api.php b/backend/routes/api.php
+index 191ed13..d23eb40 100644
+--- a/backend/routes/api.php
++++ b/backend/routes/api.php
+@@ -26,6 +26,7 @@
+ 
+         Route::middleware(['auth:sanctum', ResolveTenantAndBranch::class])->group(function () use ($can) {
+             Route::get('auth/me', [AuthController::class, 'me']);
++            Route::get('shop', [AuthController::class, 'shop']);   // name/phone/address/footer for printed slips
+             Route::post('auth/logout', [AuthController::class, 'logout']);
+             Route::get('imei/{imei}', [TacController::class, 'lookup']);
+ 
+@@ -59,15 +60,19 @@
+             Route::get('inventory', InventoryListController::class)->middleware($can('inventory.view'));
+ 
+             Route::post('vouchers', [AccountController::class, 'storeVoucher'])->middleware($can('accounts.create'));
++            Route::get('vouchers', [AccountController::class, 'vouchers'])->middleware($can('accounts.view'));
++            Route::get('vouchers/{id}', [AccountController::class, 'voucher'])->whereNumber('id')->middleware($can('accounts.view'));
+             Route::prefix('accounts/{type}')->whereIn('type', ['supplier', 'customer'])->middleware($can('accounts.view'))->group(function () {
+                 Route::get('/', BalanceListController::class);
+                 Route::get('{id}', [AccountController::class, 'statement'])->whereNumber('id');
++                Route::get('{id}/open', [AccountController::class, 'open'])->whereNumber('id');
+             });
+ 
+             Route::get('expense-heads', [ExpenseController::class, 'heads'])->middleware($can('expenses.view'));
+             Route::post('expense-heads', [ExpenseController::class, 'storeHead'])->middleware($can('expenses.create'));
+             Route::get('expenses', [ExpenseController::class, 'index'])->middleware($can('expenses.view'));
+             Route::post('expenses', [ExpenseController::class, 'store'])->middleware($can('expenses.create'));
++            Route::get('expenses/{id}', [ExpenseController::class, 'show'])->whereNumber('id')->middleware($can('expenses.view'));
+             Route::delete('expenses/{id}', [ExpenseController::class, 'destroy'])->whereNumber('id')->middleware($can('expenses.delete'));
+ 
+             Route::get('transfers/branches', [TransferController::class, 'branches'])->middleware($can('transfers.view'));
+diff --git a/backend/tests/Feature/VoucherTest.php b/backend/tests/Feature/VoucherTest.php
+new file mode 100644
+index 0000000..4f1ed2b
+--- /dev/null
++++ b/backend/tests/Feature/VoucherTest.php
+@@ -0,0 +1,97 @@
++<?php
++
++declare(strict_types=1);
++
++use Illuminate\Support\Facades\DB;
++
++function pay(array $shop, array $over = [])
++{
++    return call($shop, 'POST', '/vouchers', $over + ['direction' => 'payment', 'method' => 'cash', 'voucher_date' => today()->toDateString()]);
++}
++
++it('settles a purchase bill through a payment voucher and keeps the ledger right', function () {
++    $shop = registerShop();
++    $b = buy($shop, [IMEIS[0], IMEIS[1]], '1000');                       // bill of 2000, nothing paid yet
++
++    $v = pay($shop, ['party_type' => 'supplier', 'party_id' => $b['supplier'], 'purchase_id' => $b['purchase'], 'amount' => '500'])->assertCreated();
++    call($shop, 'GET', "/purchases/{$b['purchase']}")->assertJsonPath('paid', '500.00')->assertJsonPath('due', '1500.00')->assertJsonPath('supplier_id', $b['supplier']);
++    call($shop, 'GET', '/accounts/supplier')->assertJsonPath('data.0.balance', '1500.00');
++
++    // the slip shows the bill and the balance right after this voucher
++    call($shop, 'GET', "/vouchers/{$v['id']}")->assertOk()->assertJsonPath('kind', 'party')->assertJsonPath('direction', 'payment')
++        ->assertJsonPath('amount', '500.00')->assertJsonPath('balance', '1500.00')->assertJsonPath('bill.due', '1500.00')
++        ->assertJsonPath('bill_ref', DB::table('purchases')->value('invoice_no'));
++
++    pay($shop, ['party_type' => 'supplier', 'party_id' => $b['supplier'], 'purchase_id' => $b['purchase'], 'amount' => '1500'])->assertCreated();
++    call($shop, 'GET', "/purchases/{$b['purchase']}")->assertJsonPath('due', '0.00');
++    call($shop, 'GET', '/accounts/supplier')->assertJsonPath('data.0.balance', '0.00');
++});
++
++it('never lets a voucher overpay a bill or settle the wrong one', function () {
++    $shop = registerShop();
++    $b = buy($shop, [IMEIS[0]], '1000');
++    $other = call($shop, 'POST', '/suppliers', ['name' => 'Other Traders'])->assertCreated()['id'];
++
++    pay($shop, ['party_type' => 'supplier', 'party_id' => $b['supplier'], 'purchase_id' => $b['purchase'], 'amount' => '1000.01'])
++        ->assertStatus(422)->assertJsonPath('code', 'OVER_BILL');
++    pay($shop, ['party_type' => 'supplier', 'party_id' => $other, 'purchase_id' => $b['purchase'], 'amount' => '100'])
++        ->assertStatus(422)->assertJsonPath('code', 'BILL_NOT_FOUND');
++    pay($shop, ['party_type' => 'supplier', 'party_id' => $b['supplier'], 'purchase_id' => $b['purchase'], 'sale_id' => 1, 'amount' => '100'])
++        ->assertStatus(422)->assertJsonPath('code', 'ONE_BILL_ONLY');
++    pay($shop, ['party_type' => 'supplier', 'party_id' => $b['supplier'], 'purchase_id' => $b['purchase'], 'direction' => 'receipt', 'amount' => '100'])
++        ->assertStatus(422)->assertJsonPath('code', 'BILL_MISMATCH');
++    expect(DB::table('purchases')->value('paid_minor'))->toBe(0)->and(DB::table('vouchers')->count())->toBe(0);
++});
++
++it('settles a credit sale through a receipt voucher and lists the open bills', function () {
++    $shop = registerShop();
++    buy($shop, [IMEIS[0]], '1000');
++    $customer = call($shop, 'POST', '/customers', ['name' => 'Ali', 'phone' => '0300'])->assertCreated()['id'];
++    $sale = call($shop, 'POST', '/sales', ['customer_id' => $customer, 'sale_date' => today()->toDateString(), 'received' => '0',
++        'items' => [['imei' => IMEIS[0], 'price' => '1500']]])->assertCreated()['id'];
++
++    call($shop, 'GET', "/accounts/customer/{$customer}/open")->assertOk()->assertJsonPath('balance', '1500.00')
++        ->assertJsonPath('bills.0.id', $sale)->assertJsonPath('bills.0.due', '1500.00')->assertJsonPath('party.name', 'Ali');
++
++    $v = call($shop, 'POST', '/vouchers', ['party_type' => 'customer', 'party_id' => $customer, 'direction' => 'receipt', 'method' => 'bank',
++        'amount' => '1500', 'sale_id' => $sale, 'voucher_date' => today()->toDateString()])->assertCreated();
++    call($shop, 'GET', "/sales/{$sale}")->assertJsonPath('received', '1500.00')->assertJsonPath('due', '0.00')->assertJsonPath('customer_id', $customer);
++    call($shop, 'GET', "/accounts/customer/{$customer}/open")->assertJsonPath('balance', '0.00')->assertJsonCount(0, 'bills');
++    call($shop, 'GET', '/vouchers?direction=receipt')->assertOk()->assertJsonPath('0.voucher_no', $v['voucher_no'])->assertJsonPath('0.party', 'Ali');
++});
++
++it('still accepts a plain on-account voucher with no bill', function () {
++    $shop = registerShop();
++    $b = buy($shop, [IMEIS[0]], '1000');
++    pay($shop, ['party_type' => 'supplier', 'party_id' => $b['supplier'], 'amount' => '400'])->assertCreated();
++    call($shop, 'GET', '/accounts/supplier')->assertJsonPath('data.0.balance', '600.00');
++    call($shop, 'GET', "/purchases/{$b['purchase']}")->assertJsonPath('paid', '0.00');   // not allocated to a bill
++});
++
++it('gives every expense a printable voucher number and method', function () {
++    $shop = registerShop();
++    $head = call($shop, 'POST', '/expense-heads', ['name' => 'Rent'])->assertCreated()['id'];
++    $e = call($shop, 'POST', '/expenses', ['expense_head_id' => $head, 'amount' => '25000', 'expense_date' => today()->toDateString(), 'method' => 'bank', 'notes' => 'Oct shop rent'])->assertCreated();
++    $f = call($shop, 'POST', '/expenses', ['expense_head_id' => $head, 'amount' => '100', 'expense_date' => today()->toDateString()])->assertCreated();
++
++    expect($e['voucher_no'])->toStartWith('EV-')->and($f['voucher_no'])->not->toBe($e['voucher_no']);
++    call($shop, 'GET', "/expenses/{$e['id']}")->assertOk()->assertJsonPath('kind', 'expense')->assertJsonPath('head', 'Rent')
++        ->assertJsonPath('method', 'bank')->assertJsonPath('amount', '25000.00')->assertJsonPath('voucher_no', $e['voucher_no']);
++    call($shop, 'GET', "/expenses/{$f['id']}")->assertJsonPath('method', 'cash');
++    call($shop, 'GET', '/expenses')->assertOk()->assertJsonPath('data.0.voucher_no', $f['voucher_no']);
++});
++
++it('keeps vouchers inside the shop that made them', function () {
++    $a = registerShop('shop-a');
++    $b = registerShop('shop-b');
++    $x = buy($a, [IMEIS[0]], '1000');
++    $v = pay($a, ['party_type' => 'supplier', 'party_id' => $x['supplier'], 'amount' => '100'])->assertCreated();
++    call($b, 'GET', "/vouchers/{$v['id']}")->assertNotFound();
++    call($b, 'GET', '/vouchers')->assertOk()->assertJsonCount(0);
++    pay($b, ['party_type' => 'supplier', 'party_id' => $x['supplier'], 'purchase_id' => $x['purchase'], 'amount' => '100'])->assertStatus(422);
++});
++
++it('lets the print page read the shop name, phone and address', function () {
++    $shop = registerShop();
++    call($shop, 'GET', '/shop')->assertOk()->assertJsonStructure(['name', 'phone', 'address', 'footer']);
++});

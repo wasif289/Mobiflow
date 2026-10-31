@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-/**
- * Same-origin gateway to the Laravel API. The login token lives ONLY in an httpOnly cookie, so JavaScript
- * (and therefore any XSS) can never read it. The browser calls /api/proxy/..., this adds the Authorization header.
- */
-const API = process.env.API_URL ?? 'http://localhost:8000/api/v1';
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 const SECURE = process.env.NODE_ENV === 'production';
 const MAX_AGE = 60 * 60 * 24 * 14;
 const ISSUES_TOKEN = ['auth/login', 'auth/register', 'platform/auth/login'];

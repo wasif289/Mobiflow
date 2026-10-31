@@ -6,6 +6,7 @@ import { ArrowLeftRight, Banknote, Boxes, Building2, CreditCard, LayoutDashboard
 import { api } from '@/lib/api';
 import { useCan } from '@/lib/can';
 import { useSession, type User } from '@/lib/session';
+import { useVoucher } from "@/lib/voucher";
 import { cn } from '@/lib/utils';
 import CommandPalette, { type PaletteItem } from './CommandPalette';
 import SubscriptionBanner from './SubscriptionBanner';
@@ -13,6 +14,8 @@ import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { Select } from './ui/select';
+
+import VoucherModal from "./VoucherModal";
 
 type Nav = { href: string; perm: string; label: string; icon: LucideIcon };
 const GROUPS: { label: string; items: Nav[] }[] = [
@@ -36,6 +39,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const can = useCan();
   const { token, user, branchId, setBranch, setUser, signOut } = useSession();
+    const showVoucher = useVoucher((v) => v.show);
+    const canVoucher = can("accounts.create") || can("expenses.create");
   const [ready, setReady] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [drawer, setDrawer] = useState(false);
@@ -49,9 +54,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [ready, token, router, setUser]);
   useEffect(() => { setDrawer(false); }, [path]);
   useEffect(() => {
-    const h = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette((o) => !o); } };
-    window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
-  }, []);
+    const h = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPalette((o) => !o);
+      } else if (e.key === "F9" && canVoucher) {
+        e.preventDefault();
+        showVoucher();
+      } // voucher window from any page
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [canVoucher, showVoucher]);
 
   const toggleTheme = () => { const dark = document.documentElement.classList.toggle('dark'); localStorage.setItem('theme', dark ? 'dark' : 'light'); };
   const logout = async () => { await api('/auth/logout', { method: 'POST' }).catch(() => {}); signOut(); };
