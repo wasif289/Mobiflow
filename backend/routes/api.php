@@ -26,6 +26,7 @@ Route::prefix('v1')->group(function () use ($can) {
 
         Route::middleware(['auth:sanctum', ResolveTenantAndBranch::class])->group(function () use ($can) {
             Route::get('auth/me', [AuthController::class, 'me']);
+            Route::get('shop', [AuthController::class, 'shop']);   // name/phone/address/footer for printed slips
             Route::post('auth/logout', [AuthController::class, 'logout']);
             Route::get('imei/{imei}', [TacController::class, 'lookup']);
 
@@ -59,15 +60,19 @@ Route::prefix('v1')->group(function () use ($can) {
             Route::get('inventory', InventoryListController::class)->middleware($can('inventory.view'));
 
             Route::post('vouchers', [AccountController::class, 'storeVoucher'])->middleware($can('accounts.create'));
+            Route::get('vouchers', [AccountController::class, 'vouchers'])->middleware($can('accounts.view'));
+            Route::get('vouchers/{id}', [AccountController::class, 'voucher'])->whereNumber('id')->middleware($can('accounts.view'));
             Route::prefix('accounts/{type}')->whereIn('type', ['supplier', 'customer'])->middleware($can('accounts.view'))->group(function () {
                 Route::get('/', BalanceListController::class);
                 Route::get('{id}', [AccountController::class, 'statement'])->whereNumber('id');
+                Route::get('{id}/open', [AccountController::class, 'open'])->whereNumber('id');
             });
 
             Route::get('expense-heads', [ExpenseController::class, 'heads'])->middleware($can('expenses.view'));
             Route::post('expense-heads', [ExpenseController::class, 'storeHead'])->middleware($can('expenses.create'));
             Route::get('expenses', [ExpenseController::class, 'index'])->middleware($can('expenses.view'));
             Route::post('expenses', [ExpenseController::class, 'store'])->middleware($can('expenses.create'));
+            Route::get('expenses/{id}', [ExpenseController::class, 'show'])->whereNumber('id')->middleware($can('expenses.view'));
             Route::delete('expenses/{id}', [ExpenseController::class, 'destroy'])->whereNumber('id')->middleware($can('expenses.delete'));
 
             Route::get('transfers/branches', [TransferController::class, 'branches'])->middleware($can('transfers.view'));

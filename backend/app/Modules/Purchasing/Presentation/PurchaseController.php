@@ -64,7 +64,7 @@ final class PurchaseController
         $total = Money::ofMinor($p->total_minor);
         $paid = Money::ofMinor($p->paid_minor);
         return [
-            'id' => $p->id, 'invoice_no' => $p->invoice_no, 'purchase_date' => $p->purchase_date->toDateString(),
+            'id' => $p->id, 'invoice_no' => $p->invoice_no, 'purchase_date' => $p->purchase_date->toDateString(), 'supplier_id' => $p->supplier_id,
             'supplier' => $p->supplier?->name, 'total' => $total->toDecimal(), 'paid' => $paid->toDecimal(),
             'due' => $total->sub($paid)->toDecimal(),
         ];

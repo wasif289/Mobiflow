@@ -60,7 +60,7 @@ final class SaleController
         $total = Money::ofMinor($s->total_minor);
         $received = Money::ofMinor($s->received_minor);
         $row = [
-            'id' => $s->id, 'invoice_no' => $s->invoice_no, 'sale_date' => $s->sale_date->toDateString(),
+            'id' => $s->id, 'invoice_no' => $s->invoice_no, 'sale_date' => $s->sale_date->toDateString(), 'customer_id' => $s->customer_id,
             'customer' => $s->customer?->name, 'total' => $total->toDecimal(),
             'received' => $received->toDecimal(), 'due' => $total->sub($received)->toDecimal(),
         ];
