@@ -73,7 +73,7 @@ export default function Combo({ value, onChange, options, placeholder, label, on
         onKeyDown={onKey}
       />
       {open && (
-        <div ref={listRef} onMouseDown={(e) => e.preventDefault()} className="fixed z-[80] rounded-lg border border-border bg-card shadow-lg" style={box}>
+        <div ref={listRef} onMouseDown={(e) => e.preventDefault()} className="fixed z-80 rounded-lg border border-border bg-card shadow-lg" style={box}>
           <ul id={listId} role="listbox" className="max-h-56 overflow-auto text-sm">
             {shown.map((o, i) => (
               <li key={o.value} role="option" aria-selected={i === active} onMouseEnter={() => setActive(i)} onClick={() => pick(o.value)}

@@ -163,7 +163,7 @@ function Window({ init, onClose }: { init: VoucherInit; onClose: () => void }) {
   const canMakeParty = isPayment ? can('purchases.create') : can('sales.create');   // adding a supplier/customer needs its own right
 
   return (
-    <div className="no-print fixed inset-0 z-[70] grid place-items-center bg-black/55 p-3" role="dialog" aria-modal="true" aria-label="Voucher" onMouseDown={onClose}>
+    <div className="no-print fixed inset-0 z-70 grid place-items-center bg-black/55 p-3" role="dialog" aria-modal="true" aria-label="Voucher" onMouseDown={onClose}>
       <div className="flex max-h-[94vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
         {/* header */}
         <div className="flex items-center gap-3 border-b border-border px-5 py-3.5">

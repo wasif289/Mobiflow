@@ -33,7 +33,7 @@ import CommandPalette, { type PaletteItem } from "./CommandPalette";
 import SubscriptionBanner from "./SubscriptionBanner";
 import VoucherModal from "./VoucherModal";
 import { Button } from "./ui/button";
-import { Dialog, DialogContent, DialogTitle } from "./ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "./ui/dialog"  ;
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,7 +43,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { Select } from "./ui/select";
-  
+
 type Nav = { href: string; perm: string; label: string; icon: LucideIcon };
 const GROUPS: { label: string; items: Nav[] }[] = [
   {
