@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import CommandPalette, { type PaletteItem } from "./CommandPalette";
 import SubscriptionBanner from "./SubscriptionBanner";
 import VoucherModal from "./VoucherModal";
+import PrintHost from "./PrintHost";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogTitle } from "./ui/dialog"  ;
 import {
@@ -449,7 +450,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
       <CommandPalette open={palette} onOpenChange={setPalette} items={items} />
-         <VoucherModal />
+      <VoucherModal />
+      <PrintHost />
     </div>
   );
 }

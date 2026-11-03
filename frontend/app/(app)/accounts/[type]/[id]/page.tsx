@@ -4,11 +4,21 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Download, Printer, Search } from 'lucide-react';
 import PeriodFilter, { type Period } from '@/components/PeriodFilter';
+import VoucherPrintButtons from "@/components/VoucherPrintButtons";
 import { api, ApiError } from '@/lib/api';
 import { rangeFor } from '@/lib/dates';
 import { n } from '@/lib/format';
 
-type Row = { id: number; date: string; ref: string; description: string; debit: string; credit: string; balance: string };
+type Row = {
+  id: number;
+  date: string;
+  ref: string;
+  ref_id: number | null;
+  description: string;
+  debit: string;
+  credit: string;
+  balance: string;
+};
 type Stmt = { party: { id: number; name: string }; balance: string; rows: Row[] };
 const cell = (v: string) => (Number(v) === 0 ? '' : n(v));
 
@@ -67,15 +77,16 @@ export default function Statement() {
       </div>
       <div className="overflow-x-auto rounded-xl border border-border bg-card">
         <table className="w-full text-sm">
-          <thead className="bg-bg/60 text-left text-xs uppercase tracking-wide text-muted"><tr>{['Date', 'Description', 'Debit', 'Credit', 'Balance'].map((h, i) => <th key={h} className={`px-4 py-2.5 font-medium ${i > 1 ? 'text-right' : ''}`}>{h}</th>)}</tr></thead>
+          <thead className="bg-bg/60 text-left text-xs uppercase tracking-wide text-muted"><tr>{['Date', 'Description', 'Debit', 'Credit', 'Balance',''].map((h, i) => <th key={h} className={`px-4 py-2.5 font-medium ${i > 1 ? 'text-right' : ''}`}>{h}</th>)}</tr></thead>
           <tbody>
-            {s && rows.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-muted">No entries for these filters.</td></tr>}
+            {s && rows.length === 0 && <tr><td colSpan={6} className="px-4 py-10 text-center text-muted">No entries for these filters.</td></tr>}
             {rows.map((r) => (<tr key={r.id} className="border-t border-border hover:bg-bg/50"><td className="px-4 py-2.5">{r.date}</td><td className="px-4 py-2.5">{r.description}</td>
               <td className="px-4 py-2.5 text-right tabular-nums">{cell(r.debit)}</td><td className="px-4 py-2.5 text-right tabular-nums text-success">{cell(r.credit)}</td>
-              <td className="px-4 py-2.5 text-right font-medium tabular-nums">{n(r.balance)}</td></tr>))}
+              <td className="px-4 py-2.5 text-right font-medium tabular-nums">{n(r.balance)}</td>
+<td className="no-print px-2 py-2.5 text-right">{r.ref === 'voucher' && r.ref_id ? <VoucherPrintButtons kind="party" id={r.ref_id} /> : null}</td></tr>))}
           </tbody>
           {rows.length > 0 && <tfoot className="border-t border-border bg-bg/60 text-sm font-semibold"><tr><td colSpan={2} className="px-4 py-2.5">Totals ({rows.length} entries)</td>
-            <td className="px-4 py-2.5 text-right tabular-nums">{n(totals.d)}</td><td className="px-4 py-2.5 text-right tabular-nums text-success">{n(totals.c)}</td><td /></tr></tfoot>}
+            <td className="px-4 py-2.5 text-right tabular-nums">{n(totals.d)}</td><td className="px-4 py-2.5 text-right tabular-nums text-success">{n(totals.c)}</td><td /><td /></tr></tfoot>}
         </table>
       </div>
     </div>

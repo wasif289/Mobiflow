@@ -13,10 +13,6 @@ use App\Shared\Tenancy\TenantContext;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
-/**
- * Use case: stock-in phones from a supplier. All-or-nothing: either the purchase and every
- * IMEI are saved, or nothing is.
- */
 final class CreatePurchase
 {
     public function __construct(

@@ -1,16 +1,19 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { Check, FileText, Printer, Receipt, ReceiptText, Wallet, X } from 'lucide-react';
+import { Check, ChevronDown, FileText, Printer, Receipt, ReceiptText, Wallet, X } from 'lucide-react';
 import Combo from '@/components/Combo';
+import VoucherPrintButtons from '@/components/VoucherPrintButtons';
 import { api, ApiError } from '@/lib/api';
 import { useCan } from '@/lib/can';
 import { n } from '@/lib/format';
+import { printVoucher } from '@/lib/printslip';
 import { useVoucher, type VoucherInit, type VoucherTab } from '@/lib/voucher';
 import { cn } from '@/lib/utils';
 
 type Party = { id: number; name: string; phone?: string | null };
 type Bill = { id: number; invoice_no: string; date: string; total: string; paid: string; due: string };
 type Open = { party: Party; balance: string; bills: Bill[] };              // GET /accounts/{type}/{id}/open
+type Recent = { id: number; kind: 'party' | 'expense'; no: string; who: string; date: string; amount: string };   // one row of the recent list
 type Done = { tab: VoucherTab; kind: 'party' | 'expense'; id: number; no: string; amount: string; who: string };   // what we show after saving
 
 const METHODS: [string, string][] = [['cash', 'Cash'], ['bank', 'Bank'], ['jazzcash', 'JazzCash'], ['easypaisa', 'EasyPaisa'], ['cheque', 'Cheque']];
@@ -25,7 +28,6 @@ const TAB: Record<VoucherTab, { label: string; sub: string; save: string; text: 
   payment: { label: 'Payment', sub: 'Pay a supplier', save: 'Save payment voucher', text: 'text-danger', soft: 'border-danger/50 bg-danger/10', solid: 'bg-danger' },
   receipt: { label: 'Receipt', sub: 'Receive from a customer', save: 'Save receipt voucher', text: 'text-success', soft: 'border-success/50 bg-success/10', solid: 'bg-success' },
   expense: { label: 'Expense', sub: 'Shop expense', save: 'Save expense voucher', text: 'text-warning', soft: 'border-warning/50 bg-warning/10', solid: 'bg-warning' },
-
 };
 const TabIcon = ({ tab, size }: { tab: VoucherTab; size: number }) => (tab === 'payment' ? <Wallet size={size} /> : tab === 'receipt' ? <Receipt size={size} /> : <ReceiptText size={size} />);
 
@@ -61,7 +63,9 @@ function Window({ init, onClose }: { init: VoucherInit; onClose: () => void }) {
   const [error, setError] = useState<ApiError | string | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<Done | null>(null);
-   const [printed, setPrinted] = useState<string | null>(null);
+  const [printed, setPrinted] = useState<string | null>(null);
+  const [showRecent, setShowRecent] = useState(false);
+  const [recent, setRecent] = useState<Recent[]>([]);
   const [preferred] = useState<'thermal' | 'a4'>(() => { try { return localStorage.getItem('mf-slip-size') === 'a4' ? 'a4' : 'thermal'; } catch { return 'thermal'; } });   // last slip size used
   const wantBill = useRef(init.billId ? String(init.billId) : '');   // the bill we were opened for; selected once the bills have loaded
 
@@ -91,7 +95,20 @@ function Window({ init, onClose }: { init: VoucherInit; onClose: () => void }) {
     return () => { alive = false; };
   }, [tab, partyId, isPayment]);
 
-  /* 3. Esc closes the window (an open Combo list handles its own Esc first) */
+  /* 3. the "recent vouchers" list: loaded when opened, and again after every save */
+  useEffect(() => {
+    if (!showRecent) return;
+    let alive = true;
+    const load = tab === 'expense'
+      ? api<{ data: { id: number; voucher_no: string | null; date: string; head: string; amount: string }[] }>('/expenses?per_page=10').then((r) =>
+          r.data.map((e): Recent => ({ id: e.id, kind: 'expense', no: e.voucher_no ?? `EXP-${String(e.id).padStart(5, '0')}`, who: e.head, date: e.date, amount: e.amount })))
+      : api<{ id: number; voucher_no: string; date: string; party: string | null; amount: string }[]>(`/vouchers?direction=${tab}&limit=10`).then((r) =>
+          r.map((v): Recent => ({ id: v.id, kind: 'party', no: v.voucher_no, who: v.party ?? '—', date: v.date, amount: v.amount })));
+    load.then((rows) => { if (alive) setRecent(rows); }).catch(() => { if (alive) setRecent([]); });
+    return () => { alive = false; };
+  }, [showRecent, tab, done]);
+
+  /* 4. Esc closes the window (an open Combo list handles its own Esc first) */
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', h);
@@ -104,7 +121,7 @@ function Window({ init, onClose }: { init: VoucherInit; onClose: () => void }) {
 
   function switchTab(next: VoucherTab) {
     if (next === tab) return;
-    setTab(next); setPartyId(''); setBillId(''); setInfo(null); setError(null); wantBill.current = '';
+    setTab(next); setPartyId(''); setBillId(''); setInfo(null); setError(null); setRecent([]); wantBill.current = '';
   }
   function pickParty(id: string) { setPartyId(id); setBillId(''); setInfo(null); }
   function pickBill(id: string) {
@@ -141,22 +158,20 @@ function Window({ init, onClose }: { init: VoucherInit; onClose: () => void }) {
       if (tab === 'expense') {
         const r = await api<{ id: number; voucher_no: string }>('/expenses', { method: 'POST', body: JSON.stringify({
           expense_head_id: Number(headId), amount, expense_date: date, method, notes: notes.trim() || null }) });
-         setDone({ tab, kind: 'expense', id: r.id, no: r.voucher_no, amount, who: heads.find((h) => String(h.id) === headId)?.name ?? 'Expense' });
+        setDone({ tab, kind: 'expense', id: r.id, no: r.voucher_no, amount, who: heads.find((h) => String(h.id) === headId)?.name ?? 'Expense' });
       } else {
         const r = await api<{ id: number; voucher_no: string }>('/vouchers', { method: 'POST', body: JSON.stringify({
           party_type: isPayment ? 'supplier' : 'customer', party_id: Number(partyId), direction: tab, method, amount, voucher_date: date, notes: notes.trim() || null,
           ...(bill ? (isPayment ? { purchase_id: bill.id } : { sale_id: bill.id }) : {}) }) });   // a bill is sent only when one is chosen
-               setDone({ tab, kind: 'party', id: r.id, no: r.voucher_no, amount, who: (isPayment ? suppliers : customers).find((p) => String(p.id) === partyId)?.name ?? '' });
+        setDone({ tab, kind: 'party', id: r.id, no: r.voucher_no, amount, who: (isPayment ? suppliers : customers).find((p) => String(p.id) === partyId)?.name ?? '' });
       }
     } catch (err) { setError(err instanceof ApiError ? err : 'Could not save the voucher.'); } finally { setBusy(false); }
   }
-    /** Opens the print page in a new tab: it loads the slip, prints straight away and closes itself. */
+  /** Prints the slip right here (no new tab): the print dialog opens over this page, PrintHost does the work. */
   function printSlip(kind: Done['kind'], id: number, size: 'thermal' | 'a4') {
-    try { localStorage.setItem('mf-slip-size', size); } catch { /* private mode: ignore */ }   // remember the choice for next time
-    window.open(`/vouchers/${kind}/${id}/print?size=${size}&auto=1`, '_blank');
-    setPrinted(size === 'thermal' ? 'Thermal slip sent to the print tab.' : 'A4 slip sent to the print tab.');
+    printVoucher(kind, id, size);
+    setPrinted(size === 'thermal' ? 'Thermal slip sent to print.' : 'A4 slip sent to print.');
   }
-  
   function another() { setPrinted(null); setDone(null); setAmount(''); setNotes(''); setBillId(''); setPartyId(''); setInfo(null); setHeadId(''); setError(null); }
 
   if (tabs.length === 0) return null;
@@ -164,7 +179,7 @@ function Window({ init, onClose }: { init: VoucherInit; onClose: () => void }) {
   const canMakeParty = isPayment ? can('purchases.create') : can('sales.create');   // adding a supplier/customer needs its own right
 
   return (
-    <div className="no-print fixed inset-0 z-70 grid place-items-center bg-black/55 p-3" role="dialog" aria-modal="true" aria-label="Voucher" onMouseDown={onClose}>
+    <div className="no-print fixed inset-0 z-[70] grid place-items-center bg-black/55 p-3" role="dialog" aria-modal="true" aria-label="Voucher" onMouseDown={onClose}>
       <div className="flex max-h-[94vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
         {/* header */}
         <div className="flex items-center gap-3 border-b border-border px-5 py-3.5">
@@ -192,7 +207,8 @@ function Window({ init, onClose }: { init: VoucherInit; onClose: () => void }) {
               <div><div className="text-lg font-bold">Voucher saved</div>
                 <div className="mt-1 text-sm text-muted">{done.no}{done.who && ` · ${done.who}`}</div>
                 <div className={cn('mt-1 text-2xl font-black', TAB[done.tab].text)}>Rs. {n(done.amount)}</div></div>
-               <div className="rounded-xl border border-border bg-bg p-4">
+              {/* ask where to print the slip */}
+              <div className="rounded-xl border border-border bg-bg p-4">
                 <div className="mb-3 flex items-center justify-center gap-2 text-sm font-semibold"><Printer size={16} /> Print the slip?</div>
                 <div className="grid grid-cols-2 gap-2">
                   {([['thermal', 'Thermal slip', '80 mm roll'], ['a4', 'A4 page', 'Branded invoice']] as const).map(([k, title, sub]) => (
@@ -269,6 +285,20 @@ function Window({ init, onClose }: { init: VoucherInit; onClose: () => void }) {
                 <button type="button" onClick={onClose} className="h-11 rounded-lg border border-border px-5 text-sm font-medium hover:bg-bg">Cancel</button>
                 <button disabled={busy} className={cn('h-11 flex-1 rounded-lg text-sm font-semibold text-white shadow-sm disabled:opacity-60', t.solid)}>{busy ? 'Saving…' : t.save}</button>
               </div>
+
+              {/* recent vouchers: print any of them again in one click */}
+              <button type="button" onClick={() => setShowRecent((x) => !x)} className="flex w-full items-center justify-center gap-1 pt-1 text-xs text-muted hover:text-text">
+                Recent {t.label.toLowerCase()} vouchers <ChevronDown size={14} className={cn('transition', showRecent && 'rotate-180')} /></button>
+              {showRecent && (
+                <div className="divide-y divide-border rounded-lg border border-border text-sm">
+                  {recent.length === 0 && <p className="p-3 text-center text-xs text-muted">Nothing yet.</p>}
+                  {recent.map((r) => (
+                    <div key={`${r.kind}${r.id}`} className="flex items-center gap-2 px-3 py-2">
+                      <div className="min-w-0 flex-1"><div className="truncate font-medium">{r.who}</div><div className="text-xs text-muted">{r.no} · {dmy(r.date)}</div></div>
+                      <b className={cn('tabular-nums', t.text)}>{n(r.amount)}</b>
+                      <VoucherPrintButtons kind={r.kind} id={r.id} />
+                    </div>))}
+                </div>)}
             </form>)}
         </div>
       </div>

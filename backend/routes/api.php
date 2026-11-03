@@ -26,7 +26,7 @@ Route::prefix('v1')->group(function () use ($can) {
 
         Route::middleware(['auth:sanctum', ResolveTenantAndBranch::class])->group(function () use ($can) {
             Route::get('auth/me', [AuthController::class, 'me']);
-            Route::get('shop', [AuthController::class, 'shop']);   // name/phone/address/footer for printed slips
+            Route::get('shop', [AuthController::class, 'shop']);   
             Route::post('auth/logout', [AuthController::class, 'logout']);
             Route::get('imei/{imei}', [TacController::class, 'lookup']);
 

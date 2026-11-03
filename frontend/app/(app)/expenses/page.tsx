@@ -2,11 +2,12 @@
 import { useEffect, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import DataTable, { type Col } from '@/components/DataTable';
+import VoucherPrintButtons from "@/components/VoucherPrintButtons";
 import { api, ApiError } from '@/lib/api';
 import { n } from '@/lib/format';
 import { useSession } from '@/lib/session';
 
-type E = { id: number; date: string; head: string; notes: string | null; amount: string; by: string };
+type E = { id: number; date: string; voucher_no: string | null; head: string; notes: string | null; amount: string; by: string };
 type Head = { id: number; name: string };
 
 export default function Expenses() {
@@ -34,8 +35,8 @@ export default function Expenses() {
   }
 
   const cols: Col<E>[] = [
-    { key: 'date', label: 'Date', sort: 'date' }, { key: 'head', label: 'Head', sort: 'head' }, { key: 'notes', label: 'Notes', cell: (r) => r.notes ?? '—' },
-    { key: 'amount', label: 'Amount', sort: 'amount', align: 'right', cell: (r) => <b className="text-danger">{n(r.amount)}</b> }, { key: 'by', label: 'By' },
+    { key: 'date', label: 'Date', sort: 'date' },{ key: 'voucher_no', label: 'Voucher', cell: (r) => r.voucher_no ?? '—' }, { key: 'head', label: 'Head', sort: 'head' }, { key: 'notes', label: 'Notes', cell: (r) => r.notes ?? '—' },
+    { key: 'amount', label: 'Amount', sort: 'amount', align: 'right', cell: (r) => <b className="text-danger">{n(r.amount)}</b> }, { key: 'by', label: 'By' },{ key: 'print', label: '', align: 'right' as const, cell: (r: E) => <VoucherPrintButtons kind="expense" id={r.id} /> },
     ...(admin ? [{ key: 'x', label: '', align: 'right' as const, cell: (r: E) => <button onClick={() => remove(r)} aria-label="Delete expense" className="p-1 text-muted hover:text-danger"><Trash2 size={15} /></button> }] : []),
   ];
   const ctl = 'h-9 rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-primary';
