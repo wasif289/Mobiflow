@@ -21,7 +21,9 @@ it('settles a purchase bill through a payment voucher and keeps the ledger right
     call($shop, 'GET', "/vouchers/{$v['id']}")->assertOk()->assertJsonPath('kind', 'party')->assertJsonPath('direction', 'payment')
         ->assertJsonPath('amount', '500.00')->assertJsonPath('balance', '1500.00')->assertJsonPath('bill.due', '1500.00')
         ->assertJsonPath('bill_ref', DB::table('purchases')->value('invoice_no'));
-
+    $rows = call($shop, 'GET', "/accounts/supplier/{$b['supplier']}")->assertOk()->json('rows');
+    $voucherRow = collect($rows)->firstWhere('ref', 'voucher');
+    expect($voucherRow['ref_id'])->toBe($v['id'])->and(collect($rows)->firstWhere('ref', 'purchase')['ref_id'])->toBe($b['purchase']);
     pay($shop, ['party_type' => 'supplier', 'party_id' => $b['supplier'], 'purchase_id' => $b['purchase'], 'amount' => '1500'])->assertCreated();
     call($shop, 'GET', "/purchases/{$b['purchase']}")->assertJsonPath('due', '0.00');
     call($shop, 'GET', '/accounts/supplier')->assertJsonPath('data.0.balance', '0.00');

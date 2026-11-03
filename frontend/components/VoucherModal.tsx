@@ -25,6 +25,7 @@ const TAB: Record<VoucherTab, { label: string; sub: string; save: string; text: 
   payment: { label: 'Payment', sub: 'Pay a supplier', save: 'Save payment voucher', text: 'text-danger', soft: 'border-danger/50 bg-danger/10', solid: 'bg-danger' },
   receipt: { label: 'Receipt', sub: 'Receive from a customer', save: 'Save receipt voucher', text: 'text-success', soft: 'border-success/50 bg-success/10', solid: 'bg-success' },
   expense: { label: 'Expense', sub: 'Shop expense', save: 'Save expense voucher', text: 'text-warning', soft: 'border-warning/50 bg-warning/10', solid: 'bg-warning' },
+
 };
 const TabIcon = ({ tab, size }: { tab: VoucherTab; size: number }) => (tab === 'payment' ? <Wallet size={size} /> : tab === 'receipt' ? <Receipt size={size} /> : <ReceiptText size={size} />);
 

@@ -28,7 +28,7 @@ final class AccountController
         $expr = self::SIGNED[$type];
 
         $rows = DB::select("SELECT * FROM (
-                SELECT id, entry_date, ref_type, description, debit_minor, credit_minor,
+                SELECT id, entry_date, ref_type,ref_id, description, debit_minor, credit_minor,
                        SUM({$expr}) OVER (ORDER BY entry_date, id) AS balance_minor
                 FROM ledger_entries WHERE tenant_id = ? AND party_type = ? AND party_id = ?
             ) t WHERE (?::date IS NULL OR entry_date >= ?::date) AND (?::date IS NULL OR entry_date <= ?::date)
@@ -40,7 +40,7 @@ final class AccountController
         return response()->json([
             'party' => $party, 'balance' => Money::ofMinor($balance)->toDecimal(),
             'rows' => array_map(fn ($r) => [
-                'id' => $r->id, 'date' => $r->entry_date, 'ref' => $r->ref_type, 'description' => $r->description,
+                'id' => $r->id, 'date' => $r->entry_date, 'ref' => $r->ref_type, 'ref_id' => $r->ref_id, 'description' => $r->description,
                 'debit' => Money::ofMinor((int) $r->debit_minor)->toDecimal(), 'credit' => Money::ofMinor((int) $r->credit_minor)->toDecimal(),
                 'balance' => Money::ofMinor((int) $r->balance_minor)->toDecimal(),
             ], $rows),
