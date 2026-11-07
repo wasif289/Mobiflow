@@ -20,7 +20,7 @@ it('settles a purchase bill through a payment voucher and keeps the ledger right
     // the slip shows the bill and the balance right after this voucher
     call($shop, 'GET', "/vouchers/{$v['id']}")->assertOk()->assertJsonPath('kind', 'party')->assertJsonPath('direction', 'payment')
         ->assertJsonPath('amount', '500.00')->assertJsonPath('balance', '1500.00')->assertJsonPath('bill.due', '1500.00')
-        ->assertJsonPath('bill_ref', DB::table('purchases')->value('invoice_no'));
+        ->assertJsonPath('bill_ref', inShop('shop-a', fn() => DB::table('purchases')->value('invoice_no')));
     $rows = call($shop, 'GET', "/accounts/supplier/{$b['supplier']}")->assertOk()->json('rows');
     $voucherRow = collect($rows)->firstWhere('ref', 'voucher');
     expect($voucherRow['ref_id'])->toBe($v['id'])->and(collect($rows)->firstWhere('ref', 'purchase')['ref_id'])->toBe($b['purchase']);
@@ -42,7 +42,8 @@ it('never lets a voucher overpay a bill or settle the wrong one', function () {
         ->assertStatus(422)->assertJsonPath('code', 'ONE_BILL_ONLY');
     pay($shop, ['party_type' => 'supplier', 'party_id' => $b['supplier'], 'purchase_id' => $b['purchase'], 'direction' => 'receipt', 'amount' => '100'])
         ->assertStatus(422)->assertJsonPath('code', 'BILL_MISMATCH');
-    expect(DB::table('purchases')->value('paid_minor'))->toBe(0)->and(DB::table('vouchers')->count())->toBe(0);
+    expect(inShop('shop-a', fn() => DB::table('purchases')->value('paid_minor')))->toBe(0)
+        ->and(inShop('shop-a', fn() => DB::table('vouchers')->count()))->toBe(0);
 });
 
 it('settles a credit sale through a receipt voucher and lists the open bills', function () {

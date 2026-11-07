@@ -4,6 +4,16 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\DB;
 
+function inShop(string $slug, Closure $fn): mixed
+{
+    $ctx = app(\App\Shared\Tenancy\TenantContext::class);
+    $ctx->set((int) DB::table('tenants')->where('slug', $slug)->value('id'));
+    try {
+        return $fn();
+    } finally {
+        $ctx->clear();
+    }
+}
 function makeStaff(array $owner, array $permissions): array
 {
     call($owner, 'POST', '/admin/users', ['name' => 'Cashier', 'username' => 'cashier', 'password' => 'Str0ng-pass-1', 'role' => 'staff',
@@ -36,7 +46,7 @@ it('hides cost from staff everywhere', function () {
 it('signs a user out everywhere when they are deactivated', function () {
     $owner = registerShop();
     $staff = makeStaff($owner, ['sales.view']);
-    $id = DB::table('users')->where('username', 'cashier')->value('id');
+    $id = inShop('shop-a', fn() => DB::table('users')->where('username', 'cashier')->value('id'));
 
     call($staff, 'GET', '/sales')->assertOk();
     call($owner, 'PUT', "/admin/users/{$id}", ['is_active' => false])->assertOk();
@@ -50,7 +60,8 @@ it('only lets the owner create admins and never demotes the owner', function () 
     $admin['branch'] = $owner['branch'];
 
     call($admin, 'POST', '/admin/users', ['name' => 'Boss 3', 'username' => 'boss3', 'password' => 'Str0ng-pass-1', 'role' => 'admin'])->assertForbidden();
-    $ownerId = DB::table('users')->where('username', 'owner')->value('id');
+    $ownerId = inShop('shop-a', fn() => DB::table('users')->where('username', 'owner')->value('id'));
+    
     call($owner, 'PUT', "/admin/users/{$ownerId}", ['role' => 'staff', 'is_active' => false])->assertOk();
-    expect(DB::table('users')->where('id', $ownerId)->first(['role', 'is_active']))->role->toBe('owner')->is_active->toBeTrue();
+    expect(inShop('shop-a', fn() => DB::table('users')->where('id', $ownerId)->first(['role', 'is_active'])))->role->toBe('owner')->is_active->toBeTrue();
 });

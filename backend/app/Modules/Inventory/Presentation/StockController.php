@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace App\Modules\Inventory\Presentation;
@@ -46,9 +47,13 @@ final class StockController
     private function row(StockItem $s, Request $request): array
     {
         return [
-            'imei' => $s->imei, 'status' => $s->status,
-            'model' => $s->deviceModel->brand->name . ' ' . $s->deviceModel->name, 'brand' => $s->deviceModel->brand->name,
-            'model_name' => $s->deviceModel->name, 'variant' => $s->variant?->name, 'color' => $s->color?->name,
+            'imei' => $s->imei,
+            'status' => $s->status,
+            'model' => $s->deviceModel->brand->name . ' ' . $s->deviceModel->name,
+            'brand' => $s->deviceModel->brand->name,
+            'model_name' => $s->deviceModel->name,
+            'variant' => $s->variant?->name,
+            'color' => $s->color?->name,
         ] + ($request->user()->seesAllBranches() ? ['cost' => Money::ofMinor($s->cost_minor)->toDecimal()] : []);
     }
 }
