@@ -3,7 +3,6 @@ import { Printer } from "lucide-react";
 import { printVoucher, type SlipKind } from "@/lib/printslip";
 import { cn } from "@/lib/utils";
 
-/** Two one-click buttons for any voucher row: thermal slip (80 mm) and A4 page. Prints right here, no new tab. */
 export default function VoucherPrintButtons({
   kind,
   id,

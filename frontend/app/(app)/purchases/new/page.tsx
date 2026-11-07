@@ -2,42 +2,46 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  AlertCircle,
   ArrowLeft,
   Save,
+  ScanBarcode,
   ScanLine,
   TriangleAlert,
   X,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
+import { useCan } from "@/lib/can";
 import { n } from "@/lib/format";
 import Combo from "@/components/Combo";
 
 /* ── types (shapes come from the Laravel API) ── */
-type Cust = { id: number; name: string; phone?: string | null };
-type Stock = {
-  imei: string;
+type Opt = { id: number; name: string };
+type Supplier = Opt & { phone?: string | null };
+type Model = Opt & { brand_id: number; brand?: { name: string } };
+type Variant = Opt & { device_model_id: number };
+type InStock = {
   status: string;
-  model: string;
-  brand: string;
-  model_name: string;
-  variant: string | null;
-  color: string | null;
-  cost?: string;
+  device: string;
+  invoice_no: string | null;
+  supplier: string | null;
+  date: string | null;
+  branch: string | null;
+};
+type Lookup = {
+  imei: string;
+  tac: string;
+  model: { id: number; name: string; brand: string } | null;
+  in_stock: InStock | null;
 };
 type Line = {
   imei: string;
-  mobile: string;
-  brand: string;
-  model: string;
-  variant: string | null;
-  color: string | null;
-  cost?: string;
-  price: string;
+  modelId: number;
+  device: string;
+  variantId: string;
+  colorId: string;
+  cost: string;
 };
-type Sold = { invoice: string; date: string; customer: string };
-type Status =
-  { type: "not_found" } | { type: "sold"; imei: string; sold: Sold | null };
+type Page<T> = { data: T[]; current_page: number; last_page: number };
 
 /* ── helpers ── */
 const money = (v: string) => {
@@ -45,29 +49,38 @@ const money = (v: string) => {
   return r.length ? `${a}.${r.join("").slice(0, 2)}` : a;
 };
 const MONEY_RE = /^\d+(\.\d{1,2})?$/;
-const cents = (v?: string | null) => Math.round((Number(v) || 0) * 100);
-const fromCents = (c: number) => (c / 100).toFixed(2);
-const dmy = (d: string) =>
-  new Date(`${d}T00:00:00`).toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+const same = (a: string, b: string) =>
+  a.trim().toLowerCase() === b.trim().toLowerCase();
+const modelLabel = (m: Model) => `${m.brand?.name ?? ""} ${m.name}`.trim();
+const post = <T,>(url: string, body: unknown) =>
+  api<T>(url, { method: "POST", body: JSON.stringify(body) });
+
+/** The catalog endpoints are paginated (50/page): walk every page. */
+async function loadAll<T>(resource: string): Promise<T[]> {
+  const out: T[] = [];
+  for (let p = 1; ; p++) {
+    const r = await api<Page<T>>(`/catalog/${resource}?page=${p}`);
+    out.push(...r.data);
+    if (r.current_page >= r.last_page) return out;
+  }
+}
 
 const ctl =
   "h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-primary read-only:opacity-70 disabled:opacity-50";
 const lbl = "mb-1 block text-xs font-medium text-muted";
 const ghost =
-  "h-9 rounded-lg border border-border px-4 text-sm hover:bg-bg disabled:opacity-50";
-const btn =
-  "flex h-9 min-w-32 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-semibold text-white disabled:opacity-50";
+  "h-9 rounded-lg border border-border px-3 text-sm hover:bg-bg disabled:opacity-50";
+const primary =
+  "h-9 rounded-lg bg-primary px-4 text-sm font-semibold text-white disabled:opacity-50";
 
 function Modal({
-  children,
+  title,
   onClose,
+  children,
 }: {
-  children: React.ReactNode;
+  title: React.ReactNode;
   onClose: () => void;
+  children: React.ReactNode;
 }) {
   return (
     <div
@@ -77,14 +90,26 @@ function Modal({
       onMouseDown={onClose}
     >
       <div
-        className="w-full max-w-md space-y-3 rounded-xl border border-border bg-card p-5"
+        className="max-h-[92vh] w-full max-w-sm space-y-3 overflow-y-auto rounded-xl border border-border bg-card p-5"
         onMouseDown={(e) => e.stopPropagation()}
       >
+        <div className="flex items-center">
+          <h2 className="text-lg font-bold">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="ml-auto p-1 text-muted hover:text-text"
+          >
+            <X size={18} />
+          </button>
+        </div>
         {children}
       </div>
     </div>
   );
 }
+
 const Alert = ({ children }: { children: React.ReactNode }) => (
   <div
     role="alert"
@@ -94,26 +119,41 @@ const Alert = ({ children }: { children: React.ReactNode }) => (
   </div>
 );
 
-export default function NewSale() {
+export default function NewPurchase() {
   const router = useRouter();
-  const [customers, setCustomers] = useState<Cust[]>([]);
-  const [kind, setKind] = useState<"walkin" | "permanent">("walkin");
-  const [walkName, setWalkName] = useState("");
-  const [walkPhone, setWalkPhone] = useState("");
-  const [customerId, setCustomerId] = useState("");
+  const can = useCan();
+  const canCatalog = can("catalog.manage");
+
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [brands, setBrands] = useState<Opt[]>([]);
+  const [models, setModels] = useState<Model[]>([]);
+  const [variants, setVariants] = useState<Variant[]>([]);
+  const [colors, setColors] = useState<Opt[]>([]);
+
+  const [supplierId, setSupplierId] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [note, setNote] = useState("");
+  const [paid, setPaid] = useState("");
   const [bulk, setBulk] = useState("");
   const [scan, setScan] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
-  const [received, setReceived] = useState<string | null>(null); // null = full amount
+  const [lock, setLock] = useState(""); // variant name applied to every newly scanned phone
   const [msg, setMsg] = useState<{ t: string; c: string } | null>(null);
-  const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState<ApiError | string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [badImeis, setBadImeis] = useState<string[]>([]);
+  const [dupModal, setDupModal] = useState(false);
+  const [dup, setDup] = useState<{ imei: string; info: InStock } | null>(null); // found at scan time
+
+  const [tacOpen, setTacOpen] = useState(false);
+  const [tac, setTac] = useState({ imei: "", tac: "", brand: "", modelId: "" });
+  const [mErr, setMErr] = useState<ApiError | string | null>(null);
+  const [mBusy, setMBusy] = useState(false);
 
   const scanRef = useRef<HTMLInputElement>(null);
   const scanning = useRef(false);
+  const variantsRef = useRef<Variant[]>([]);
+  const inflight = useRef(new Map<string, Promise<Variant>>());
   const focusScan = useCallback(
     () => setTimeout(() => scanRef.current?.focus(), 50),
     [],
@@ -121,156 +161,246 @@ export default function NewSale() {
   const flash = (t: string, c = "text-success") => setMsg({ t, c });
 
   useEffect(() => {
-    api<Cust[]>("/customers")
-      .then(setCustomers)
-      .catch((e) =>
-        setError(e instanceof ApiError ? e : "Could not load customers."),
-      );
+    const fail = (e: unknown) =>
+      setError(e instanceof ApiError ? e : "Could not load the form data.");
+    api<Supplier[]>("/suppliers").then(setSuppliers).catch(fail);
+    loadAll<Opt>("brands").then(setBrands).catch(fail);
+    loadAll<Model>("models").then(setModels).catch(fail);
+    loadAll<Variant>("variants")
+      .then((v) => {
+        variantsRef.current = v;
+        setVariants(v);
+      })
+      .catch(fail);
+    loadAll<Opt>("colors").then(setColors).catch(fail);
   }, []);
 
-  /* ── money (in cents, so 0.1 + 0.2 never breaks the exact-decimal check on the server) ── */
-  const hasCost = lines.some((l) => l.cost !== undefined); // cost/profit are only sent to owners/admins
-  const totalC = useMemo(
-    () => lines.reduce((s, l) => s + cents(l.price), 0),
+  const total = useMemo(
+    () => lines.reduce((s, l) => s + (Number(l.cost) || 0), 0),
     [lines],
   );
-  const profitC = useMemo(
-    () => lines.reduce((s, l) => s + cents(l.price) - cents(l.cost), 0),
-    [lines],
+  const modelName = useMemo(
+    () => new Map(models.map((m) => [m.id, modelLabel(m)])),
+    [models],
   );
-  const walkin = kind === "walkin";
-  const gotC = walkin || received === null ? totalC : cents(received); // walk-in sales are always paid in full
-  const dueC = totalC - gotC;
+  const variantNames = useMemo(() => {
+    const seen = new Map<string, string>();
+    variants.forEach((v) => {
+      if (!seen.has(v.name.toLowerCase()))
+        seen.set(v.name.toLowerCase(), v.name);
+    });
+    return [...seen.values()].sort();
+  }, [variants]);
   const patch = (i: number, p: Partial<Line>) =>
     setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...p } : l)));
+  const patchImei = (imei: string, p: Partial<Line>) =>
+    setLines((ls) => ls.map((l) => (l.imei === imei ? { ...l, ...p } : l)));
 
-  const customerOpts = customers.map((c) => ({
-    value: String(c.id),
-    label: c.phone ? `${c.name} (${c.phone})` : c.name,
-  }));
-  const createCustomer = async (name: string) => {
-    const c = await api<Cust>("/customers", {
-      method: "POST",
-      body: JSON.stringify({ name }),
+  /* ── "type it and add it" creators: each one saves to the catalog and selects the new record ── */
+  const createSupplier = async (name: string) => {
+    const s = await post<Supplier>("/suppliers", { name });
+    setSuppliers((x) => [...x, s]);
+    setSupplierId(String(s.id));
+  };
+  const createColor = (imei: string) => async (name: string) => {
+    const c = await post<Opt>("/catalog/colors", { name });
+    setColors((x) => [...x, c]);
+    patchImei(imei, { colorId: String(c.id) });
+  };
+  /** Finds the variant of this model by name, or creates it once (even if two phones are scanned together). */
+  function ensureVariant(modelId: number, name: string): Promise<Variant> {
+    const found = variantsRef.current.find(
+      (x) => x.device_model_id === modelId && same(x.name, name),
+    );
+    if (found) return Promise.resolve(found);
+    const key = `${modelId}:${name.trim().toLowerCase()}`;
+    let p = inflight.current.get(key);
+    if (!p) {
+      p = post<Variant>("/catalog/variants", {
+        device_model_id: modelId,
+        name: name.trim(),
+      })
+        .then((v) => {
+          variantsRef.current = [...variantsRef.current, v];
+          setVariants(variantsRef.current);
+          return v;
+        })
+        .finally(() => inflight.current.delete(key));
+      inflight.current.set(key, p);
+    }
+    return p;
+  }
+  const createVariant =
+    (imei: string, modelId: number) => async (name: string) => {
+      const v = await ensureVariant(modelId, name);
+      patchImei(imei, { variantId: String(v.id) });
+    };
+  const createBrand = async (name: string) => {
+    const b = await post<Opt>("/catalog/brands", { name });
+    setBrands((x) => [...x, b]);
+    setTac((t) => ({ ...t, brand: String(b.id), modelId: "" }));
+  };
+  const createModel = async (name: string) => {
+    const m = await post<Model>("/catalog/models", {
+      brand_id: Number(tac.brand),
+      name,
     });
-    setCustomers((x) => [...x, c]);
-    setCustomerId(String(c.id));
+    const full: Model = {
+      ...m,
+      brand_id: Number(tac.brand),
+      brand: {
+        name: brands.find((b) => String(b.id) === tac.brand)?.name ?? "",
+      },
+    };
+    setModels((x) => [...x, full]);
+    setTac((t) => ({ ...t, modelId: String(m.id) }));
   };
 
-  /* ── scan ── */
+  /* ── add a scanned phone ── */
+  function addLine(imei: string, modelId: number, device: string) {
+    const v = lock
+      ? variants.find(
+          (x) => x.device_model_id === modelId && same(x.name, lock),
+        )
+      : undefined;
+    setLines((ls) => [
+      ...ls,
+      {
+        imei,
+        modelId,
+        device,
+        variantId: v ? String(v.id) : "",
+        colorId: "",
+        cost: bulk,
+      },
+    ]);
+    flash(`✓ Added: ${device}`);
+    if (lock && !v) {
+      if (canCatalog) {
+        // this model has no such variant yet: create it automatically
+        ensureVariant(modelId, lock)
+          .then((nv) => patchImei(imei, { variantId: String(nv.id) }))
+          .catch(() =>
+            flash(
+              `Added ${device}, but the "${lock}" variant could not be created.`,
+              "text-warning",
+            ),
+          );
+      } else
+        flash(
+          `Added ${device}, but it has no "${lock}" variant. Pick one in the row.`,
+          "text-warning",
+        );
+    }
+    setScan("");
+    focusScan();
+  }
+
   async function scanIMEI(raw: string) {
     const imei = raw.replace(/\D/g, "");
     if (scanning.current) return;
     if (imei.length !== 15)
       return flash("IMEI must be 15 digits.", "text-danger");
     if (lines.some((l) => l.imei === imei))
-      return flash("Already in list!", "text-warning");
-    if (lines.length >= 100)
-      return flash("A sale can hold at most 100 phones.", "text-danger");
+      return flash("IMEI already in this list!", "text-warning");
     scanning.current = true;
     try {
-      const s = await api<Stock>(`/stock/${imei}`); // checks: valid, in stock, this branch, not sold
-      setLines((ls) => [
-        ...ls,
-        {
-          imei: s.imei,
-          mobile: s.model,
-          brand: s.brand,
-          model: s.model_name,
-          variant: s.variant,
-          color: s.color,
-          cost: s.cost,
-          price: bulk,
-        },
-      ]);
-      flash(`✓ Added: ${s.model}`);
-      setScan("");
-      focusScan();
+      const r = await api<Lookup>(`/imei/${imei}`); // validates (Luhn) + detects model from the TAC + checks stock
+      if (r.in_stock) {
+        setDup({ imei: r.imei, info: r.in_stock });
+        setMsg(null);
+        setScan("");
+        return;
+      }
+      if (r.model)
+        addLine(r.imei, r.model.id, `${r.model.brand} ${r.model.name}`);
+      else {
+        setTac({ imei: r.imei, tac: r.tac, brand: "", modelId: "" });
+        setMErr(null);
+        setTacOpen(true);
+      }
     } catch (e) {
-      if (e instanceof ApiError && e.problem.code === "NOT_IN_STOCK")
-        setStatus({ type: "not_found" });
-      else if (
-        e instanceof ApiError &&
-        e.problem.code === "STOCK_ALREADY_SOLD"
-      ) {
-        const f = (k: string) => e.field(k);
-        setStatus({
-          type: "sold",
-          imei,
-          sold: f("sold_invoice")
-            ? {
-                invoice: f("sold_invoice")!,
-                date: f("sold_date") ?? "",
-                customer: f("sold_customer") ?? "Walk-in",
-              }
-            : null,
-        });
-      } else
-        flash(
-          e instanceof ApiError ? e.message : "Error checking IMEI.",
-          "text-danger",
-        );
+      flash(
+        e instanceof ApiError ? e.message : "IMEI lookup failed.",
+        "text-danger",
+      );
     } finally {
       scanning.current = false;
     }
   }
-  const closeStatus = () => {
-    setStatus(null);
+
+  /* ── unknown TAC: pick (or type-and-add) brand + model, then remember the TAC ── */
+  const tacModels = models.filter((m) => String(m.brand_id) === tac.brand);
+  const tacModel = tacModels.find((m) => String(m.id) === tac.modelId);
+  const closeTac = () => {
+    setTacOpen(false);
     setScan("");
     focusScan();
   };
+  async function confirmTac() {
+    if (!tacModel) return;
+    setMBusy(true);
+    setMErr(null);
+    try {
+      if (canCatalog)
+        await post("/tac-mappings", {
+          tac: tac.tac,
+          device_model_id: tacModel.id,
+        });
+      addLine(tac.imei, tacModel.id, modelLabel(tacModel));
+      setTacOpen(false);
+    } catch (e) {
+      setMErr(e instanceof ApiError ? e : "Something went wrong. Try again.");
+    } finally {
+      setMBusy(false);
+    }
+  }
 
   /* ── save ── */
   async function save(printAfter = false) {
     if (busy) return;
     setError(null);
+    setBadImeis([]);
     const fail = (m: string) => {
       setError(m);
       window.scrollTo({ top: 0, behavior: "smooth" });
     };
-    if (lines.length === 0)
-      return fail("Please add at least one item to the sale.");
-    if (!date) return fail("Please enter a valid date.");
-    if (!walkin && !customerId) return fail("Please select a customer.");
-    if (lines.some((l) => !MONEY_RE.test(l.price) || cents(l.price) <= 0))
-      return fail(
-        "One or more items have no sale price. Please enter a valid sale price.",
-      );
-    if (
-      !walkin &&
-      received !== null &&
-      received !== "" &&
-      !MONEY_RE.test(received)
-    )
-      return fail("Received amount must be a number, e.g. 25000 or 25000.50.");
-    if (gotC > totalC)
-      return fail("Received amount is more than the sale total.");
-
-    const walkNote =
-      walkin && (walkName.trim() || walkPhone.trim())
-        ? `Walk-in: ${[walkName.trim(), walkPhone.trim() && `(${walkPhone.trim()})`].filter(Boolean).join(" ")}`
-        : "";
-    const fullNote = [walkNote, note.trim()]
-      .filter(Boolean)
-      .join(" · ")
-      .slice(0, 500);
+    if (!supplierId) return fail("Please select a supplier first.");
+    if (!date) return fail("Please select a purchase date.");
+    if (lines.length === 0) return fail("Please add at least one phone.");
+    if (lines.length > 200)
+      return fail("A purchase can hold at most 200 phones. Split it into two.");
+    if (lines.some((l) => !MONEY_RE.test(l.cost) || Number(l.cost) <= 0))
+      return fail("Please enter a cost price for every phone.");
+    if (paid && !MONEY_RE.test(paid))
+      return fail("Paid amount must be a number, e.g. 25000 or 25000.50.");
+    if (Number(paid || 0) > total)
+      return fail("Paid amount is more than the purchase total.");
 
     setBusy(true);
     try {
-      const r = await api<{ id: number }>("/sales", {
-        method: "POST",
-        body: JSON.stringify({
-          customer_id: walkin ? null : Number(customerId),
-          sale_date: date,
-          received: fromCents(gotC),
-          note: fullNote || null,
-          items: lines.map((l) => ({ imei: l.imei, price: l.price })),
-        }),
+      const r = await post<{ id: number }>("/purchases", {
+        supplier_id: Number(supplierId),
+        purchase_date: date,
+        paid: paid || "0",
+        note: note.trim() || null,
+        items: lines.map((l) => ({
+          imei: l.imei,
+          device_model_id: l.modelId,
+          variant_id: l.variantId ? Number(l.variantId) : null,
+          color_id: l.colorId ? Number(l.colorId) : null,
+          cost: l.cost,
+        })),
       });
-      router.replace(printAfter ? `/sales/${r.id}?print=1` : "/sales");
+      router.replace(printAfter ? `/purchases/${r.id}?print=1` : "/purchases");
     } catch (e) {
-      setError(e instanceof ApiError ? e : "Could not save the sale.");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      if (e instanceof ApiError) {
+        if (e.problem.code === "IMEI_ALREADY_IN_STOCK") {
+          setBadImeis(e.problem.errors?.imei ?? []);
+          setDupModal(true);
+        }
+        setError(e);
+      } else setError("Could not save the purchase.");
     } finally {
       setBusy(false);
     }
@@ -280,44 +410,40 @@ export default function NewSale() {
     saveRef.current = save;
   });
 
-  /* ── shortcuts: Alt+Enter / Ctrl+S save, Alt+P / Ctrl+P save & print, Esc / Enter close the status modal ── */
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      const k = e.key.toLowerCase();
-      if (status) {
-        if (k === "escape" || k === "enter") {
-          e.preventDefault();
-          closeStatus();
-        }
+      if (e.key === "Escape") {
+        setTacOpen(false);
+        setDupModal(false);
+        setDup(null);
         return;
       }
-      if ((e.altKey && k === "enter") || (e.ctrlKey && k === "s")) {
+      if (tacOpen || dupModal || dup) return;
+      if (e.ctrlKey && e.key.toLowerCase() === "s") {
         e.preventDefault();
         saveRef.current(false);
-      } else if ((e.altKey && k === "p") || (e.ctrlKey && k === "p")) {
+      } else if (e.ctrlKey && e.key.toLowerCase() === "p") {
         e.preventDefault();
         saveRef.current(true);
       }
     };
     document.addEventListener("keydown", h);
     return () => document.removeEventListener("keydown", h);
-  });
+  }, [tacOpen, dupModal, dup]);
 
   const imeiErrors =
     error instanceof ApiError ? error.problem.errors?.imei : undefined;
-  const th = [
-    "#",
-    "IMEI",
-    "Mobile",
-    "Brand",
-    "Model",
-    "Variant",
-    "Color",
-    ...(hasCost ? ["Cost"] : []),
-    "Sale price (Rs.)",
-    ...(hasCost ? ["Profit"] : []),
-    "",
-  ];
+  const supplierOpts = suppliers.map((s) => ({
+    value: String(s.id),
+    label: s.name,
+  }));
+  const colorOpts = colors.map((c) => ({ value: String(c.id), label: c.name }));
+  const brandOpts = brands.map((b) => ({ value: String(b.id), label: b.name }));
+  const tacModelOpts = tacModels.map((m) => ({
+    value: String(m.id),
+    label: m.name,
+  }));
+  const lockOpts = variantNames.map((v) => ({ value: v, label: v }));
 
   return (
     <div className="space-y-4">
@@ -325,15 +451,15 @@ export default function NewSale() {
         <button
           type="button"
           aria-label="Back"
-          onClick={() => router.push("/sales")}
+          onClick={() => router.push("/purchases")}
           className="rounded-lg p-2 text-muted hover:bg-bg"
         >
           <ArrowLeft size={18} />
         </button>
         <div>
-          <h1 className="text-xl font-bold">New sale</h1>
+          <h1 className="text-xl font-bold">New purchase</h1>
           <p className="text-xs text-muted">
-            The invoice number is given when you save.
+            The entry number is given when you save.
           </p>
         </div>
       </div>
@@ -352,54 +478,17 @@ export default function NewSale() {
       )}
 
       <div className="grid gap-3 rounded-xl border border-border bg-card p-4 md:grid-cols-4">
-        <label className="text-sm">
-          <span className={lbl}>Customer type</span>
-          <select
-            value={kind}
-            onChange={(e) => setKind(e.target.value as "walkin" | "permanent")}
-            className={ctl}
-          >
-            <option value="walkin">Walk-in customer</option>
-            <option value="permanent">Permanent customer</option>
-          </select>
-        </label>
-        {walkin ? (
-          <>
-            <label className="text-sm">
-              <span className={lbl}>Customer name</span>
-              <input
-                value={walkName}
-                maxLength={120}
-                onChange={(e) => setWalkName(e.target.value)}
-                placeholder="Name"
-                className={ctl}
-              />
-            </label>
-            <label className="text-sm">
-              <span className={lbl}>Phone</span>
-              <input
-                value={walkPhone}
-                maxLength={30}
-                inputMode="tel"
-                onChange={(e) => setWalkPhone(e.target.value)}
-                placeholder="Phone"
-                className={ctl}
-              />
-            </label>
-          </>
-        ) : (
-          <div className="md:col-span-2">
-            <span className={lbl}>Customer *</span>
-            <Combo
-              label="Customer"
-              value={customerId}
-              onChange={setCustomerId}
-              options={customerOpts}
-              placeholder="Type customer name…"
-              onCreate={createCustomer}
-            />
-          </div>
-        )}
+        <div className="md:col-span-2">
+          <span className={lbl}>Supplier *</span>
+          <Combo
+            label="Supplier"
+            value={supplierId}
+            onChange={setSupplierId}
+            options={supplierOpts}
+            placeholder="Type supplier name…"
+            onCreate={createSupplier}
+          />
+        </div>
         <label className="text-sm">
           <span className={lbl}>Date *</span>
           <input
@@ -409,13 +498,13 @@ export default function NewSale() {
             className={ctl}
           />
         </label>
-        <label className="text-sm md:col-span-4">
-          <span className={lbl}>Notes</span>
+        <label className="text-sm">
+          <span className={lbl}>Note</span>
           <input
             value={note}
-            maxLength={400}
+            maxLength={500}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="Optional…"
+            placeholder="Optional note…"
             className={ctl}
           />
         </label>
@@ -423,11 +512,13 @@ export default function NewSale() {
 
       <div className="rounded-xl border border-border bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center gap-3">
-          <ScanLine size={16} className="text-success" />
+          <ScanLine size={16} className="text-primary" />
           <h3 className="text-sm font-semibold">IMEI scanner</h3>
-          <span className="text-xs text-muted">Scan IMEI to add sale item</span>
+          <span className="text-xs text-muted">
+            Scan or type the IMEI. It is added at 15 digits.
+          </span>
           <label className="ml-auto flex items-center gap-2 text-xs text-muted">
-            Bulk sale price
+            Bulk price
             <input
               inputMode="decimal"
               value={bulk}
@@ -436,32 +527,68 @@ export default function NewSale() {
               onChange={(e) => {
                 const v = money(e.target.value);
                 setBulk(v);
-                setLines((ls) => ls.map((l) => ({ ...l, price: v })));
+                setLines((ls) => ls.map((l) => ({ ...l, cost: v })));
               }}
             />
           </label>
         </div>
-        <input
-          ref={scanRef}
-          autoFocus
-          aria-label="IMEI"
-          inputMode="numeric"
-          maxLength={15}
-          value={scan}
-          placeholder="Scan IMEI here…"
-          className={`${ctl} text-base tracking-widest`}
-          onChange={(e) => {
-            const v = e.target.value.replace(/\D/g, "");
-            setScan(v);
-            if (v.length === 15) scanIMEI(v);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.altKey) {
-              e.preventDefault();
-              scanIMEI(scan);
-            }
-          }}
-        />
+        <div className="flex flex-wrap gap-2">
+          <input
+            ref={scanRef}
+            autoFocus
+            aria-label="IMEI"
+            inputMode="numeric"
+            maxLength={15}
+            value={scan}
+            placeholder="Scan IMEI here…"
+            className={`${ctl} min-w-56 flex-1 tracking-widest`}
+            onChange={(e) => {
+              const v = e.target.value.replace(/\D/g, "");
+              setScan(v);
+              if (v.length === 15) scanIMEI(v);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                scanIMEI(scan);
+              }
+            }}
+          />
+          <div className="flex min-w-56 flex-1 items-center gap-2">
+            <Combo
+              label="Variant for new phones"
+              className="min-w-0 flex-1"
+              value={lock}
+              onChange={(v) => {
+                setLock(v);
+                focusScan();
+              }}
+              options={lockOpts}
+              placeholder="Variant for new phones… (type, e.g. 8GB/128GB)"
+              onCreate={
+                canCatalog
+                  ? async (name) => {
+                      setLock(name.trim());
+                      focusScan();
+                    }
+                  : undefined
+              }
+              createLabel={(t) => `+ Use “${t}” for new phones`}
+            />
+            {lock && (
+              <button
+                type="button"
+                onClick={() => {
+                  setLock("");
+                  focusScan();
+                }}
+                className={ghost}
+              >
+                Unlock
+              </button>
+            )}
+          </div>
+        </div>
         {msg && (
           <div role="status" className={`mt-2 text-sm ${msg.c}`}>
             {msg.t}
@@ -470,41 +597,36 @@ export default function NewSale() {
       </div>
 
       <div className="rounded-xl border border-border bg-card">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <h3 className="text-sm font-semibold">
-            Items <span className="text-muted">({lines.length})</span>
+            Phones <span className="text-muted">({lines.length})</span>
           </h3>
           {lines.length > 0 && (
-            <div className="flex gap-4 text-xs text-muted">
-              <span>
-                Total:{" "}
-                <b className="text-success">Rs. {n(fromCents(totalC))}</b>
-              </span>
-              {hasCost && (
-                <span>
-                  Profit:{" "}
-                  <b className={profitC >= 0 ? "text-success" : "text-danger"}>
-                    Rs. {n(fromCents(profitC))}
-                  </b>
-                </span>
-              )}
-            </div>
+            <span className="text-sm text-muted">
+              Total <b className="text-primary">Rs. {n(total)}</b>
+            </span>
           )}
         </div>
         {lines.length === 0 ? (
-          <p className="p-8 text-center text-sm text-muted">
-            Scan IMEI to add sale items
-          </p>
+          <div className="flex flex-col items-center p-8 text-muted">
+            <ScanBarcode size={32} className="mb-2 opacity-40" />
+            <p className="text-sm">Scan an IMEI to add the first phone.</p>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-bg/60 text-xs uppercase text-muted">
                 <tr>
-                  {th.map((h, i) => (
-                    <th
-                      key={`${h}${i}`}
-                      className="px-3 py-2 text-left font-medium"
-                    >
+                  {[
+                    "#",
+                    "IMEI",
+                    "Phone",
+                    "Variant",
+                    "Color",
+                    "Cost (Rs.)",
+                    "",
+                  ].map((h) => (
+                    <th key={h} className="px-3 py-2 text-left font-medium">
                       {h}
                     </th>
                   ))}
@@ -512,41 +634,63 @@ export default function NewSale() {
               </thead>
               <tbody>
                 {lines.map((l, i) => {
-                  const p = cents(l.price) - cents(l.cost);
+                  const own = variants
+                    .filter((v) => v.device_model_id === l.modelId)
+                    .map((v) => ({ value: String(v.id), label: v.name }));
+                  const bad = badImeis.includes(l.imei);
                   return (
-                    <tr key={l.imei} className="border-t border-border">
+                    <tr
+                      key={l.imei}
+                      className={`border-t border-border ${bad ? "bg-danger/10" : ""}`}
+                    >
                       <td className="px-3 py-2 text-muted">{i + 1}</td>
                       <td className="px-3 py-2">
-                        <code className="text-xs">{l.imei}</code>
+                        <code className={`text-xs ${bad ? "text-danger" : ""}`}>
+                          {l.imei}
+                        </code>
                       </td>
-                      <td className="px-3 py-2">{l.mobile}</td>
-                      <td className="px-3 py-2">{l.brand}</td>
-                      <td className="px-3 py-2">{l.model}</td>
-                      <td className="px-3 py-2">{l.variant ?? "-"}</td>
-                      <td className="px-3 py-2">{l.color ?? "-"}</td>
-                      {hasCost && (
-                        <td className="px-3 py-2 text-muted">
-                          Rs. {n(l.cost)}
-                        </td>
-                      )}
+                      <td className="px-3 py-2">
+                        {modelName.get(l.modelId) ?? l.device}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Combo
+                          label="Variant"
+                          className="w-44"
+                          value={l.variantId}
+                          onChange={(v) => patch(i, { variantId: v })}
+                          options={own}
+                          placeholder="Type variant…"
+                          onCreate={
+                            canCatalog
+                              ? createVariant(l.imei, l.modelId)
+                              : undefined
+                          }
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <Combo
+                          label="Color"
+                          className="w-40"
+                          value={l.colorId}
+                          onChange={(v) => patch(i, { colorId: v })}
+                          options={colorOpts}
+                          placeholder="Type color…"
+                          onCreate={
+                            canCatalog ? createColor(l.imei) : undefined
+                          }
+                        />
+                      </td>
                       <td className="px-3 py-2">
                         <input
-                          aria-label="Sale price"
+                          aria-label="Cost price"
                           inputMode="decimal"
-                          value={l.price}
+                          value={l.cost}
                           onChange={(e) =>
-                            patch(i, { price: money(e.target.value) })
+                            patch(i, { cost: money(e.target.value) })
                           }
                           className={`${ctl} !w-28`}
                         />
                       </td>
-                      {hasCost && (
-                        <td
-                          className={`px-3 py-2 font-semibold ${p >= 0 ? "text-success" : "text-danger"}`}
-                        >
-                          Rs. {n(fromCents(p))}
-                        </td>
-                      )}
                       <td className="px-3 py-2">
                         <button
                           type="button"
@@ -571,98 +715,188 @@ export default function NewSale() {
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
-          onClick={() => router.push("/sales")}
+          onClick={() => router.push("/purchases")}
           className={ghost}
         >
           Cancel
         </button>
         <span className="text-sm text-muted">
-          {lines.length} phones · Total{" "}
-          <b className="text-text">Rs. {n(fromCents(totalC))}</b>
+          {lines.length} phones · Rs. {n(total)}
         </span>
         <label className="ml-auto flex items-center gap-2 text-xs text-muted">
-          Received
+          Paid now
           <input
             inputMode="decimal"
-            aria-label="Received"
-            disabled={walkin}
-            value={
-              walkin || received === null
-                ? fromCents(totalC).replace(/\.00$/, "")
-                : received
-            }
-            onChange={(e) => setReceived(money(e.target.value))}
+            value={paid}
+            placeholder="0"
+            onChange={(e) => setPaid(money(e.target.value))}
             className={`${ctl} !w-32`}
           />
         </label>
-        {!walkin && dueC > 0 && (
-          <span className="text-sm text-warning">Due {n(fromCents(dueC))}</span>
-        )}
         <button
           type="button"
           disabled={busy}
           onClick={() => save(true)}
-          title="Alt+P / Ctrl+P"
-          className={`${btn} bg-primary`}
+          title="Ctrl+P"
+          className={`${ghost} flex items-center gap-1.5`}
         >
-          <Save size={14} /> Save and print
+          <Save size={14} /> Save &amp; print
         </button>
         <button
           type="button"
           disabled={busy}
           onClick={() => save(false)}
-          title="Alt+Enter / Ctrl+S"
-          className={`${btn} bg-success`}
+          title="Ctrl+S"
+          className={`${primary} flex items-center gap-1.5`}
         >
-          <Save size={14} /> {busy ? "Saving…" : "Save sale"}
+          <Save size={14} /> {busy ? "Saving…" : "Save purchase"}
         </button>
       </div>
 
-      {status && (
-        <Modal onClose={closeStatus}>
-          {status.type === "not_found" ? (
-            <>
-              <div className="flex items-center justify-center gap-2 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm font-medium text-danger">
-                <AlertCircle size={20} /> IMEI not found in stock!
-              </div>
-              <p className="text-center text-sm text-muted">
-                The scanned IMEI is not in purchase records.
+      {tacOpen && (
+        <Modal title="Unknown device" onClose={closeTac}>
+          <div className="space-y-3">
+            <p className="text-xs text-muted">
+              TAC <b className="text-primary">{tac.tac}</b> is not known yet.
+              Type the brand and model: pick a match, or add it if it is new.
+              Every IMEI with this TAC is recognised next time.
+            </p>
+            {mErr && (
+              <Alert>{typeof mErr === "string" ? mErr : mErr.message}</Alert>
+            )}
+            <div>
+              <span className={lbl}>Brand *</span>
+              <Combo
+                label="Brand"
+                value={tac.brand}
+                onChange={(v) => setTac({ ...tac, brand: v, modelId: "" })}
+                options={brandOpts}
+                placeholder="Type brand, e.g. Samsung"
+                onCreate={canCatalog ? createBrand : undefined}
+              />
+            </div>
+            <div>
+              <span className={lbl}>Model *</span>
+              <Combo
+                label="Model"
+                disabled={!tac.brand}
+                value={tac.modelId}
+                onChange={(v) => setTac({ ...tac, modelId: v })}
+                options={tacModelOpts}
+                placeholder={
+                  tac.brand
+                    ? "Type model, e.g. Galaxy S24"
+                    : "Select a brand first"
+                }
+                onCreate={canCatalog ? createModel : undefined}
+              />
+            </div>
+            {!canCatalog && (
+              <p className="text-xs text-warning">
+                You can only pick a brand and model that already exist. Ask an
+                admin to add new ones.
               </p>
-            </>
-          ) : (
-            <>
-              <div className="flex items-center justify-center gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm font-medium text-warning">
-                <TriangleAlert size={20} /> IMEI already sold!
-              </div>
-              <p className="text-center text-xs text-muted">
-                <code>{status.imei}</code>
-              </p>
-              {status.sold && (
-                <div className="space-y-1 text-sm">
-                  <p>
-                    <span className="text-muted">Invoice:</span>{" "}
-                    <b>{status.sold.invoice}</b>
-                  </p>
-                  {status.sold.date && (
-                    <p>
-                      <span className="text-muted">Sale date:</span>{" "}
-                      <b>{dmy(status.sold.date)}</b>
-                    </p>
-                  )}
-                  <p>
-                    <span className="text-muted">Customer:</span>{" "}
-                    <b>{status.sold.customer}</b>
-                  </p>
-                </div>
-              )}
-            </>
-          )}
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={closeTac}
+                className={`${ghost} flex-1`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!tacModel || mBusy}
+                onClick={confirmTac}
+                className={`${primary} flex-1`}
+              >
+                {mBusy ? "Saving…" : "Confirm & add"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {dup && (
+        <Modal
+          title={
+            <span className="flex items-center gap-2 text-danger">
+              <TriangleAlert size={20} /> Duplicate IMEI
+            </span>
+          }
+          onClose={() => {
+            setDup(null);
+            focusScan();
+          }}
+        >
+          <Alert>IMEI: {dup.imei}</Alert>
+          <p className="text-sm text-muted">
+            This phone is already{" "}
+            {dup.info.status === "in_transit"
+              ? "in transit between branches"
+              : "in stock"}
+            , so it cannot be purchased again.
+          </p>
+          <div className="space-y-1 text-sm">
+            {(
+              [
+                ["Entry no", dup.info.invoice_no],
+                ["Supplier", dup.info.supplier],
+                ["Date", dup.info.date],
+                ["Branch", dup.info.branch],
+                ["Phone", dup.info.device],
+              ] as const
+            )
+              .filter(([, v]) => v)
+              .map(([k, v]) => (
+                <p key={k}>
+                  <span className="text-muted">{k}:</span> <b>{v}</b>
+                </p>
+              ))}
+          </div>
           <button
             type="button"
-            onClick={closeStatus}
-            className="mx-auto flex h-9 items-center rounded-lg bg-primary px-6 text-sm font-semibold text-white"
+            onClick={() => {
+              setDup(null);
+              focusScan();
+            }}
+            className={`${primary} w-full`}
           >
-            OK
+            OK, got it
+          </button>
+        </Modal>
+      )}
+
+      {dupModal && (
+        <Modal
+          title={
+            <span className="flex items-center gap-2 text-danger">
+              <TriangleAlert size={20} /> Already in stock
+            </span>
+          }
+          onClose={() => setDupModal(false)}
+        >
+          <p className="text-sm text-muted">
+            These phones are already in stock, so the purchase was not saved.
+            Remove them (highlighted in the list) and save again.
+          </p>
+          <ul className="max-h-48 list-disc space-y-1 overflow-auto pl-5 text-sm">
+            {badImeis.map((m) => (
+              <li key={m}>
+                <code>{m}</code>
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            onClick={() => {
+              setDupModal(false);
+              focusScan();
+            }}
+            className={`${primary} w-full`}
+          >
+            OK, got it
           </button>
         </Modal>
       )}

@@ -83,7 +83,7 @@ export default function Statement() {
             {rows.map((r) => (<tr key={r.id} className="border-t border-border hover:bg-bg/50"><td className="px-4 py-2.5">{r.date}</td><td className="px-4 py-2.5">{r.description}</td>
               <td className="px-4 py-2.5 text-right tabular-nums">{cell(r.debit)}</td><td className="px-4 py-2.5 text-right tabular-nums text-success">{cell(r.credit)}</td>
               <td className="px-4 py-2.5 text-right font-medium tabular-nums">{n(r.balance)}</td>
-<td className="no-print px-2 py-2.5 text-right">{r.ref === 'voucher' && r.ref_id ? <VoucherPrintButtons kind="party" id={r.ref_id} /> : null}</td></tr>))}
+        <td className="no-print px-2 py-2.5 text-right">{r.ref === 'voucher' && r.ref_id ? <VoucherPrintButtons kind="party" id={r.ref_id} /> : null}</td></tr>))}
           </tbody>
           {rows.length > 0 && <tfoot className="border-t border-border bg-bg/60 text-sm font-semibold"><tr><td colSpan={2} className="px-4 py-2.5">Totals ({rows.length} entries)</td>
             <td className="px-4 py-2.5 text-right tabular-nums">{n(totals.d)}</td><td className="px-4 py-2.5 text-right tabular-nums text-success">{n(totals.c)}</td><td /><td /></tr></tfoot>}
