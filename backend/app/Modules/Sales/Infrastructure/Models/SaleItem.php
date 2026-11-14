@@ -8,6 +8,9 @@ use App\Shared\Tenancy\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property string|null $imei 
+ */
 final class SaleItem extends Model
 {
     use BelongsToTenant;

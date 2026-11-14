@@ -6,6 +6,12 @@ namespace App\Modules\Catalog\Infrastructure\Models;
 use App\Shared\Tenancy\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * @property int $id
+ * @property int $brand_id
+ * @property string $name
+ * @property-read Brand|null $brand
+ */
 final class DeviceModel extends Model
 {
     use BelongsToTenant;
