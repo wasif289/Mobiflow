@@ -66,3 +66,37 @@ body {
     display: none !important;
   }
 }
+/* AG Grid Custom Theme Overrides matching your Tailwind theme */
+.ag-theme-alpine, .ag-theme-quartz {
+  --ag-background-color: var(--card, #ffffff);
+  --ag-foreground-color: var(--text, #111827);
+  --ag-data-row-background-color: var(--card, #ffffff);
+  --ag-border-color: var(--border, #e5e7eb);
+  --ag-header-background-color: var(--card, #f9fafb);
+  --ag-header-foreground-color: var(--text, #374151);
+  --ag-row-hover-color: var(--bg, #f3f4f6);
+  --ag-input-focus-border-color: var(--primary, #3b82f6);
+  --ag-font-family: inherit;
+  --ag-font-size: 0.875rem;
+}
+
+/* Fix AG Grid container borders to match your Card component */
+.ag-theme-alpine {
+  border: none !important;
+  background-color: transparent !important;
+}
+
+.ag-theme-alpine .ag-root-wrapper {
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius, 0.5rem);
+  background-color: var(--card);
+}
+
+.ag-theme-alpine .ag-header {
+  background-color: var(--card) !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
+.ag-theme-alpine .ag-row {
+  border-bottom: 1px solid var(--border) !important;
+}

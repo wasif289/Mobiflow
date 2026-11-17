@@ -1,7 +1,6 @@
 'use client';
 import { useSession } from './session';
 
-/** UI hint only. The server enforces every permission on every request. */
 export function useCan() {
   const perms = useSession((s) => s.user?.permissions);
   const loggedIn = useSession((s) => !!s.user);

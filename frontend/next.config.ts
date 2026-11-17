@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["10.10.10.21"],
+  turbopack: {
+    root: "C:\\Users\\IE\\Mobiflow\\frontend",
+  },
   async headers() {
     return [
       {
